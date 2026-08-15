@@ -10,7 +10,7 @@ Deixar contas, acessos, decisões e dados de teste prontos antes do desenvolvime
 
 - Confirmar que o repositório atual é o local oficial do backend.
 - Conceder permissão de escrita e de criação de commits/branches, se desejar que eu faça commits.
-- A stack já está definida: Python 3.12+, FastAPI, Pydantic, SQLAlchemy, Alembic, `uv`, `pytest` e `ruff`.
+- A stack já está definida: Python 3.12+, `venv` + `pip`, FastAPI, Pydantic, SQLAlchemy, Alembic, `pytest` e `ruff`.
 - A IA usa o SDK Python oficial da OpenAI. LangGraph ou LangChain não são necessários inicialmente e só serão avaliados se um workflow futuro justificar.
 
 **Pronto quando:** essas escolhas são mantidas como padrão do MVP; não há decisão técnica pendente nesta seção.
@@ -48,15 +48,15 @@ LLM_MODEL_ANSWERING
 
 ### 4. Decisões de dados e piloto
 
-Confirmar por escrito estas decisões:
+Decisões aprovadas:
 
 - O MVP será de uso pessoal, com um único `owner` por workspace.
 - Fontes e memórias são mantidas até exclusão do usuário.
 - Backups podem reter dados por até 30 dias, mas registros excluídos não podem voltar à aplicação.
 - O piloto não usará transcrições de terceiros sem consentimento.
-- O primeiro piloto será limitado a memória e consulta, sem envio de mensagens, e-mails ou automações.
+- A primeira entrega foca em criar e manter corretamente a wiki/memória. Agentes que respondem mensagens, enviam e-mails ou executam automações ficam para depois do MVP.
 
-Separar também um conjunto de ao menos 30 transcrições **sintéticas ou autorizadas**, sem segredos desnecessários, para avaliação. Elas devem conter decisões, compromissos, pessoas com aliases, mudanças de prazo e perguntas esperadas.
+Separar também um conjunto de ao menos 30 transcrições **sintéticas**, sem segredos desnecessários, para avaliação. Elas devem conter decisões, compromissos, pessoas com aliases, mudanças de prazo e perguntas esperadas.
 
 **Pronto quando:** as decisões são aprovadas e o dataset de avaliação está disponível antes da etapa 06.
 
@@ -80,7 +80,7 @@ Separar também um conjunto de ao menos 30 transcrições **sintéticas ou autor
 - [ ] Repositório disponível para desenvolvimento.
 - [ ] Projeto Supabase criado, com Auth e `pgvector` disponíveis.
 - [ ] Credenciais locais disponíveis apenas por mecanismo seguro.
-- [ ] Decisões de dados e piloto aprovadas.
+- [x] Decisões de dados e piloto aprovadas.
 
 Com essa checklist concluída, posso executar as etapas 01 a 03 sem nova dependência externa. Para as etapas 04 e 05, preciso adicionalmente da chave da OpenAI. Para a etapa 06, preciso apenas do dataset de avaliação.
 

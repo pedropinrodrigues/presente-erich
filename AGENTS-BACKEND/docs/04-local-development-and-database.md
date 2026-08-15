@@ -17,7 +17,7 @@ Deploy da API e do worker será tratado somente depois que o fluxo do MVP estive
 
 ## Configuração local
 
-Usar Python 3.12+, `uv` para dependências e ambientes virtuais, `pytest` para testes, `ruff` para lint/formatação, Alembic para migrations e SQLAlchemy para acesso ao banco. As variáveis mínimas são:
+Usar Python 3.12+, `venv` + `pip` para dependências e ambientes virtuais, `pytest` para testes, `ruff` para lint/formatação, Alembic para migrations e SQLAlchemy para acesso ao banco. As variáveis mínimas são:
 
 ```text
 SUPABASE_URL

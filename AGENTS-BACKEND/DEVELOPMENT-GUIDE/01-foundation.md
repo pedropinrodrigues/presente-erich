@@ -8,13 +8,13 @@ Criar uma base local e repetível em Python/FastAPI para API e worker antes de i
 
 - Acesso de escrita ao repositório.
 - Runtime e gerenciador de dependências escolhidos pelo time.
-- Python 3.12+, FastAPI, Pydantic, SQLAlchemy, Alembic, `uv`, `pytest` e `ruff` como stack definida.
+- Python 3.12+, `venv` + `pip`, FastAPI, Pydantic, SQLAlchemy, Alembic, `pytest` e `ruff` como stack definida.
 
 Não é necessário acesso ao Supabase ou ao provedor de IA nesta etapa.
 
 ## Implementação, na ordem
 
-1. Criar o projeto Python e congelar versões mínimas de runtime e dependências com `uv`.
+1. Criar o projeto Python com ambiente virtual em `venv` e registrar versões mínimas de runtime e dependências.
 2. Separar módulos de `api`, `worker`, `ingestion`, `memory`, `retrieval` e `model-gateway`, ainda que alguns estejam vazios.
 3. Configurar lint, formatador, verificação de tipos quando aplicável e testes unitários.
 4. Definir configuração tipada por ambiente e criar arquivo `.env.example` sem credenciais reais.
