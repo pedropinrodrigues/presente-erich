@@ -39,9 +39,9 @@ Criar ou selecionar a conta OpenAI do MVP, com faturamento habilitado e limite d
 Disponibilizar uma chave de API para uso local, com limite de gasto configurado. Registrar o nome do modelo inicialmente aprovado para extração e resposta. O backend usa o SDK Python da OpenAI, Responses API e `store=false`.
 
 ```text
-LLM_API_KEY
-LLM_MODEL_EXTRACTION
-LLM_MODEL_ANSWERING
+OPENAI_API_KEY
+OPENAI_MODEL_EXTRACTION
+OPENAI_MODEL_ANSWERING
 ```
 
 **Pronto quando:** há uma chave válida, cobrança habilitada, limite de gasto definido e modelo inicial escolhido. Sem isso, as etapas 01–03 podem avançar, mas a etapa 04 ficará bloqueada.
@@ -77,10 +77,13 @@ Separar também um conjunto de ao menos 30 transcrições **sintéticas**, sem s
 
 ## Checklist de liberação para iniciar a Etapa 01
 
-- [ ] Repositório disponível para desenvolvimento.
-- [ ] Projeto Supabase criado, com Auth e `pgvector` disponíveis.
-- [ ] Credenciais locais disponíveis apenas por mecanismo seguro.
+- [x] Repositório disponível para desenvolvimento.
+- [x] Projeto Supabase criado, com Auth e `pgvector` disponíveis.
+- [x] Credenciais locais disponíveis apenas por mecanismo seguro.
 - [x] Decisões de dados e piloto aprovadas.
+
+O banco, a migration, o JWT e uma autenticação HTTP temporária foram validados. A chave da OpenAI
+também foi validada, mas a avaliação final permanece pausada quando a conta não possui saldo de API.
 
 Com essa checklist concluída, posso executar as etapas 01 a 03 sem nova dependência externa. Para as etapas 04 e 05, preciso adicionalmente da chave da OpenAI. Para a etapa 06, preciso apenas do dataset de avaliação.
 

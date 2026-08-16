@@ -52,6 +52,7 @@ Ficam fora do MVP: envio de mensagens, Skills de escrita, automações, calendá
 - [API e casos de uso](docs/03-api-and-use-cases.md)
 - [Desenvolvimento local e banco](docs/04-local-development-and-database.md)
 - [Qualidade e avaliação](docs/05-quality-and-evaluation.md)
+- [Seleção de modelos e custo](docs/07-model-selection-and-cost.md)
 - [Evolução após o MVP](docs/06-post-mvp-roadmap.md)
 - [Guia de desenvolvimento](DEVELOPMENT-GUIDE/DEVELOPMENT-GUIDE.md)
 

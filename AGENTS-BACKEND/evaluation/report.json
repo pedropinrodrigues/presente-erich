@@ -1,0 +1,8 @@
+{
+  "cases": 30,
+  "unique_ids": true,
+  "unique_capture_ids": true,
+  "cases_with_questions": 30,
+  "questions": 30,
+  "dataset_valid": true
+}

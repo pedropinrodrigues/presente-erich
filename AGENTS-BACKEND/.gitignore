@@ -8,3 +8,6 @@ __pycache__/
 *.py[cod]
 coverage.xml
 htmlcov/
+evaluation/live-answers.json
+evaluation/live-extractions.json
+evaluation/live-run-extractions.json

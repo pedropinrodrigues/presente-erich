@@ -1,0 +1,4 @@
+[console_scripts]
+agents-api = agents_backend.api.main:run
+agents-evaluate = agents_backend.evaluation.runner:run
+agents-worker = agents_backend.worker.main:run

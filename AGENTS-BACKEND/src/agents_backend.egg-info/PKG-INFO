@@ -1,0 +1,24 @@
+Metadata-Version: 2.4
+Name: agents-backend
+Version: 0.1.0
+Summary: Backend de memória fundamentada em transcrições.
+Requires-Python: >=3.12
+Requires-Dist: alembic<2,>=1.14
+Requires-Dist: asyncpg<1,>=0.30
+Requires-Dist: fastapi<1,>=0.115
+Requires-Dist: greenlet<4,>=3.1
+Requires-Dist: httpx<1,>=0.28
+Requires-Dist: openai<3,>=1.60
+Requires-Dist: pgvector<1,>=0.3
+Requires-Dist: pydantic<3,>=2.10
+Requires-Dist: pydantic-settings<3,>=2.7
+Requires-Dist: PyJWT[crypto]<3,>=2.10
+Requires-Dist: sqlalchemy<3,>=2.0.37
+Requires-Dist: tenacity<10,>=9
+Requires-Dist: uvicorn[standard]<1,>=0.34
+Provides-Extra: dev
+Requires-Dist: aiosqlite<1,>=0.20; extra == "dev"
+Requires-Dist: pytest<9,>=8.3; extra == "dev"
+Requires-Dist: pytest-asyncio<1,>=0.25; extra == "dev"
+Requires-Dist: pytest-cov<7,>=6; extra == "dev"
+Requires-Dist: ruff<1,>=0.9; extra == "dev"

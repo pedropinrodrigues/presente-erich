@@ -15,11 +15,16 @@ O dataset não pode conter transcrições reais sem consentimento explícito e d
 | Métrica | Como medir | Gate para o piloto |
 | --- | --- | --- |
 | Validade estrutural | Saídas de extração que passam no JSON Schema. | ≥ 98% |
-| Precisão de extração | Candidatos corretos entre os candidatos persistidos. | ≥ 90% |
+| Precisão de extração | Candidatos corretos entre entidades ativas, fatos `current` e compromissos ativos. Candidatos `proposed` são medidos à parte e não alimentam respostas. | ≥ 90% |
 | Cobertura de extração | Fatos e compromissos esperados recuperados. | ≥ 80% |
 | Resposta fundamentada | Afirmações relevantes sustentadas por evidência apresentada. | ≥ 95% |
 | Recuperação útil | Perguntas com resposta correta ou incerteza explícita. | ≥ 85% |
 | Duplicação indevida | Memórias repetidas entre execuções/retries. | ≤ 2% |
+
+Na precisão, cada candidato pode corresponder a no máximo um item do gabarito, preservando a
+penalização de duplicatas. Na cobertura, um candidato composto pode sustentar mais de uma
+proposição esperada quando o próprio trecho contém todas elas; por exemplo, uma mudança de data e
+seu motivo. Flexões portuguesas são comparadas por radical com critérios conservadores.
 
 Os resultados devem ser segmentados por tipo de informação e por versão de modelo/prompt. Se um gate falhar, a mudança não segue para o piloto sem revisão explícita.
 

@@ -1,0 +1,92 @@
+{
+  "evaluated_at": "2026-08-16T02:36:16.734483+00:00",
+  "cases": 30,
+  "dataset_cases_total": 30,
+  "benchmark_only": false,
+  "models": {
+    "extraction": "gpt-5.6-luna",
+    "answering": "gpt-5.6-luna",
+    "embedding": "text-embedding-3-small"
+  },
+  "versions": {
+    "extraction_prompt": "extraction-2026-08-15-v5",
+    "answer_prompt": "answer-2026-08-15-v1",
+    "extraction_schema": "memory-candidates-v1"
+  },
+  "reused_extractions": false,
+  "usage": {
+    "extraction": {
+      "model": "gpt-5.6-luna",
+      "requests": 30,
+      "input_tokens": 37798,
+      "output_tokens": 7284,
+      "duration_ms": 68789,
+      "estimated_cost_usd": 0.0163
+    },
+    "answering": {
+      "model": "gpt-5.6-luna",
+      "requests": 27,
+      "input_tokens": 10070,
+      "output_tokens": 2732,
+      "duration_ms": 39933,
+      "estimated_cost_usd": 0.005292
+    },
+    "estimated_model_cost_usd": 0.021592,
+    "pricing_snapshot": {
+      "date": "2026-08-15",
+      "unit": "USD per 1M tokens",
+      "rates": {
+        "gpt-5.6-luna": {
+          "input": 0.2,
+          "output": 1.2
+        }
+      }
+    },
+    "embedding_cost_included": false
+  },
+  "metrics": {
+    "schema_validity": 1.0,
+    "extraction_precision": 1.0,
+    "extraction_coverage": 0.9024,
+    "grounded_answers": 0.9667,
+    "useful_retrieval": 0.8667,
+    "duplication": 0.0
+  },
+  "extraction_details": {
+    "entities": {
+      "predicted": 57,
+      "expected": 57,
+      "matched": 57,
+      "covered": 57,
+      "precision": 1.0,
+      "coverage": 1.0
+    },
+    "facts": {
+      "predicted": 24,
+      "expected": 29,
+      "matched": 24,
+      "covered": 27,
+      "precision": 1.0,
+      "coverage": 0.931
+    },
+    "commitments": {
+      "predicted": 10,
+      "expected": 12,
+      "matched": 10,
+      "covered": 10,
+      "precision": 1.0,
+      "coverage": 0.8333
+    }
+  },
+  "extraction_errors": [],
+  "gates": {
+    "schema_validity": true,
+    "extraction_precision": true,
+    "extraction_coverage": true,
+    "grounded_answers": true,
+    "useful_retrieval": true,
+    "duplication": true
+  },
+  "passed": true,
+  "benchmark_passed": null
+}
