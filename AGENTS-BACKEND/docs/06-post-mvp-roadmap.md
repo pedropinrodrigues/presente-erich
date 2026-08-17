@@ -6,11 +6,14 @@ Não adicionar automação antes de a memória provar utilidade: recuperação c
 
 ## Próximas fases
 
-| Fase | Adições | Dependência |
-| --- | --- | --- |
-| Assistente executivo | Calendário, briefings e acompanhamento de pendências. | Qualidade confiável de memória e retrieval. |
-| Ações assistidas | Rascunhos, aprovações e integrações somente de baixo risco. | Políticas de autorização e auditoria maduras. |
-| Agente pessoal | Skills, integrações de e-mail/mensageria e autonomia progressiva. | Confiança do usuário, controles e métricas operacionais. |
+| Fase | Estado | Adições | Dependência |
+| --- | --- | --- | --- |
+| Interface conversacional | Implementada | Runtime de agente, tools da memória, confirmações e endpoint de teste independente de canal. | Piloto controlado e observabilidade. |
+| Canal Telegram | Gateway publicado | Bot, Edge Function, segredo, webhook idempotente, deep link, worker e outbox. | Executar e observar o piloto real. |
+| Canal WhatsApp | Adaptador preservado | Cloud API, assinatura HMAC, vínculo e normalização implementados. | Ativar quando houver número empresarial brasileiro. |
+| Assistente executivo | Planejado | Calendário, briefings e acompanhamento de pendências. | Qualidade confiável de memória e retrieval. |
+| Ações assistidas | Planejado | Rascunhos, aprovações e integrações somente de baixo risco. | Políticas de autorização e auditoria maduras. |
+| Agente pessoal | Planejado | Skills, integrações de e-mail/mensageria e autonomia progressiva. | Confiança do usuário, controles e métricas operacionais. |
 
 ## Ideias deliberadamente adiadas
 
@@ -22,3 +25,7 @@ Não adicionar automação antes de a memória provar utilidade: recuperação c
 - grafo de conhecimento especializado.
 
 Essas opções podem ser reavaliadas quando existir uma necessidade mensurável que o MVP não resolva.
+
+O uso de um agente para mediar as funções existentes não significa múltiplos agentes autônomos. A
+implementação usa um único agente conversacional, um conjunto fechado de tools e limites explícitos
+de execução. Veja [08-whatsapp-agent-tools-plan.md](08-whatsapp-agent-tools-plan.md).

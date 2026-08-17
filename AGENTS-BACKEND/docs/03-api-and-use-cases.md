@@ -14,20 +14,38 @@ Toda chamada é autenticada e limitada ao usuário/workspace do solicitante. As 
 | `GetEntity` | id de entidade | visão atual, relações e histórico. |
 | `CorrectMemory` | alvo, correção e motivo opcional | alteração auditável e projeção atualizada. |
 | `DeleteMemory` | alvo e escopo | confirmação de exclusão e trabalho derivado quando necessário. |
+| `ProcessAgentTurn` | mensagem, id externo e conversa opcional | resposta, tools e confirmação pendente. |
+| `BindTelegramAccount` | usuário autenticado | deep link temporário para prova de posse. |
 
-## Rotas sugeridas
+## Rotas implementadas
 
 ```text
 POST   /v1/transcripts
 GET    /v1/sources/{id}
+DELETE /v1/sources/{id}
 POST   /v1/memory/ask
 GET    /v1/memory/search
 GET    /v1/entities/{id}
 POST   /v1/memory/corrections
 DELETE /v1/memory/{id}
+POST   /v1/agent/turns
+POST   /v1/channels/telegram/accounts
+POST   /webhooks/telegram
+POST   /v1/channels/whatsapp/accounts
+GET    /webhooks/whatsapp
+POST   /webhooks/whatsapp
 ```
 
-Os nomes podem mudar; os contratos e comportamentos devem permanecer estáveis para os clientes.
+`/webhooks/telegram` exige `X-Telegram-Bot-Api-Secret-Token`. As rotas WhatsApp continuam
+disponíveis como adaptador inativo e validam o contrato da Meta.
+
+O Bot API usa a implementação publicada como Supabase Edge Function:
+
+```text
+https://onuxlluzwlnkhbsfiind.supabase.co/functions/v1/telegram-webhook
+```
+
+As rotas FastAPI permanecem disponíveis para desenvolvimento e testes locais.
 
 ## Contratos formais mínimos
 
@@ -65,13 +83,34 @@ Retorna `200` com `answer`, `evidence[]`, `uncertainties[]` e `source_ids[]`. Ca
 - `GET /v1/entities/{id}` retorna entidade, fatos atuais, relações e histórico paginado.
 - `POST /v1/memory/corrections` recebe `{ "target_id", "operation", "value", "reason" }`, onde `operation` é `replace`, `dispute` ou `delete`.
 
+### `POST /v1/agent/turns`
+
+```json
+{
+  "message_id": "client-message-001",
+  "message": "Quais são minhas pendências?",
+  "conversation_id": null
+}
+```
+
+`message_id` é obrigatório e idempotente por workspace. A primeira resposta cria uma conversa; os
+turnos seguintes reutilizam o `conversation_id` retornado. A saída informa a resposta final,
+`tools_used`, uma possível `pending_action` e se ocorreu replay idempotente.
+
+### Vínculo do Telegram
+
+`POST /v1/channels/telegram/accounts` recebe `display_name` opcional. O vínculo começa inativo e
+retorna um `verification_deep_link` com validade de 15 minutos. A conta só é ativada quando o link
+abre o bot e o Telegram envia `/start <código>` pelo chat privado. Chats desconhecidos ou inativos
+não são encaminhados ao agente.
+
 ## Status HTTP e erros
 
 | Status | Uso |
 | --- | --- |
 | `200` | Consulta bem-sucedida ou replay idempotente. |
 | `201` | Fonte criada. |
-| `202` | Correção ou exclusão aceita com processamento derivado pendente. |
+| `202` | Webhook aceito e persistido para processamento assíncrono. |
 | `400` | Contrato inválido. |
 | `401` / `403` | Identidade ausente ou acesso fora do workspace. |
 | `404` | Recurso inexistente ou indisponível para o workspace. |
@@ -91,6 +130,10 @@ Para responder, o backend identifica filtros explícitos (pessoa, projeto, data 
 - Jobs possuem chave própria por fonte e versão do pipeline.
 - Erros temporários são repetíveis; erros de contrato retornam detalhes para correção no cliente.
 - O cliente recebe o identificador da fonte antes da extração terminar e pode consultar seu estado.
+- Mensagens usam a chave única `(provider, external_message_id)`; replays retornam ou reutilizam o
+  resultado persistido.
+- Cada tool possui idempotência por turno, nome, versão e hash dos argumentos.
+- A resposta ao Telegram é criada na outbox e repetida pelo worker sem gerar outra resposta lógica.
 
 ## Fluxo de correção
 
@@ -100,3 +143,15 @@ Usuário seleciona informação → UI envia correção → domínio valida
 ```
 
 O usuário não edita diretamente tabelas de memória nem precisa compreender a estrutura interna.
+
+## Uso dos casos de uso como tools
+
+Os casos de uso estão adaptados como tools do agente conversacional. Uma tool não é uma chamada
+HTTP arbitrária: é um adaptador tipado que recebe argumentos validados e chama diretamente o
+serviço de aplicação correspondente.
+
+O executor injeta `RequestContext` a partir da identidade vinculada ao canal. `user_id`,
+`workspace_id`, credenciais e políticas de autorização nunca são argumentos fornecidos pelo modelo.
+Tools de leitura executam automaticamente; mutações recebem idempotência e política de risco;
+exclusões exigem uma confirmação posterior do usuário. Consulte
+[08-whatsapp-agent-tools-plan.md](08-whatsapp-agent-tools-plan.md).

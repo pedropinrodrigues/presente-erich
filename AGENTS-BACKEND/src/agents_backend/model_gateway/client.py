@@ -229,6 +229,33 @@ class ModelGateway:
             output_tokens=getattr(usage, "output_tokens", None),
         )
 
+    @retry(
+        retry=retry_if_exception(retryable_model_error),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
+        stop=stop_after_attempt(2),
+        reraise=True,
+    )
+    async def conversation_response(
+        self,
+        *,
+        instructions: str,
+        input_items: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        safety_identifier: str,
+    ) -> Any:
+        return await self.client.responses.create(
+            model=self.settings.openai_model_conversation,
+            reasoning={"effort": self.settings.openai_reasoning_effort_conversation},
+            store=False,
+            instructions=instructions,
+            input=input_items,
+            tools=tools,
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            max_output_tokens=self.settings.conversation_max_output_tokens,
+            safety_identifier=safety_identifier,
+        )
+
     async def embed(self, text: str) -> list[float]:
         response = await self.client.embeddings.create(
             model=self.settings.openai_model_embedding,

@@ -1,4 +1,6 @@
-.PHONY: install api worker test lint format check migrate evaluate evaluate-live
+.PHONY: install api worker test lint format check migrate evaluate evaluate-live evaluate-conversation test-edge test-telegram-edge deploy-whatsapp-edge deploy-telegram-edge
+
+SUPABASE_PROJECT_REF ?= onuxlluzwlnkhbsfiind
 
 install:
 	.venv/bin/pip install -r requirements-dev.txt
@@ -28,3 +30,18 @@ evaluate:
 
 evaluate-live:
 	.venv/bin/python scripts/evaluate_live.py
+
+evaluate-conversation:
+	.venv/bin/python scripts/evaluate_conversation.py
+
+test-edge:
+	npx --yes deno@latest test supabase/functions/whatsapp-webhook/core_test.ts
+
+test-telegram-edge:
+	npx --yes deno@latest test supabase/functions/telegram-webhook/core_test.ts
+
+deploy-whatsapp-edge:
+	npx --yes supabase@latest functions deploy whatsapp-webhook --project-ref $(SUPABASE_PROJECT_REF) --use-api --no-verify-jwt
+
+deploy-telegram-edge:
+	npx --yes supabase@latest functions deploy telegram-webhook --project-ref $(SUPABASE_PROJECT_REF) --use-api --no-verify-jwt

@@ -2,13 +2,18 @@
 
 ## Propósito
 
-Agents & Backend é o núcleo que recebe transcrições, preserva a fonte, cria memória útil e responde perguntas com evidências. Este documento define somente o MVP funcional; não é uma especificação da arquitetura final.
+Agents & Backend é o núcleo que recebe transcrições, preserva a fonte, cria memória útil e permite
+que um agente conversacional consulte ou altere essa memória por tools controladas. Este documento
+define o MVP funcional; não é uma especificação da arquitetura final.
 
 ## Fluxo que precisa funcionar
 
 ```text
 Transcript Event → fonte persistida → extração estruturada
 → memória consolidada → busca → resposta com evidências
+
+Mensagem → agente conversacional → tool autorizada → serviço de domínio
+→ feedback no mesmo canal
 ```
 
 O áudio nunca chega ao backend. A transcrição e seus metadados são a fonte persistente do MVP.
@@ -23,8 +28,13 @@ O áudio nunca chega ao backend. A transcrição e seus metadados são a fonte p
 - buscar por texto, filtros estruturados e similaridade quando disponível;
 - responder perguntas usando fontes recuperáveis;
 - permitir correção e exclusão auditáveis pelo usuário.
+- receber turnos conversacionais autenticados e idempotentes;
+- mediar leitura e escrita por um catálogo fechado de tools;
+- exigir confirmação em outro turno para toda exclusão;
+- receber texto do Telegram Bot API por webhook e responder por outbox.
 
-Ficam fora do MVP: envio de mensagens, Skills de escrita, automações, calendário, briefings, notificações proativas, múltiplos agentes autônomos e loops agênticos abertos.
+Ficam fora do MVP: e-mail, calendário, mídia/áudio no Telegram, notificações proativas, automações
+externas, múltiplos agentes autônomos e loops agênticos abertos.
 
 ## Módulos
 
@@ -36,14 +46,19 @@ Ficam fora do MVP: envio de mensagens, Skills de escrita, automações, calendá
 | Memory | Validar, deduplicar e versionar entidades, fatos e compromissos. |
 | Retrieval | Recuperar contexto e evidências para uma pergunta. |
 | Worker | Executar extração e indexação com retry. |
+| Conversation Agent | Interpretar mensagens e executar o loop de function calling. |
+| Tool Registry | Validar argumentos, política, idempotência e execução de casos de uso. |
+| Telegram adapter | Verificar webhook, normalizar texto, vincular identidade e usar outbox. |
 
 ## Decisões de implementação do MVP
 
 - **Linguagem e API:** Python com FastAPI.
 - **IA:** SDK Python oficial da OpenAI e Responses API, com Structured Outputs para extração.
 - **Orquestração:** workflows explícitos no código; LangGraph ou LangChain só serão adotados se uma etapa futura demonstrar uma necessidade concreta.
-- **Banco hospedado:** um único projeto Supabase para Auth e PostgreSQL.
-- **Execução da aplicação:** API e worker rodam localmente neste momento. Deploy da aplicação, staging e infraestrutura de escala ficam para depois do MVP funcional.
+- **Supabase hospedado:** um único projeto para Auth, PostgreSQL e a Edge Function pública do
+  webhook Telegram.
+- **Execução da aplicação:** API e worker Python rodam localmente neste momento. Deploy permanente
+  desses dois processos, staging e infraestrutura de escala ficam para depois do MVP funcional.
 
 ## Documentação por assunto
 
@@ -54,7 +69,7 @@ Ficam fora do MVP: envio de mensagens, Skills de escrita, automações, calendá
 - [Qualidade e avaliação](docs/05-quality-and-evaluation.md)
 - [Seleção de modelos e custo](docs/07-model-selection-and-cost.md)
 - [Evolução após o MVP](docs/06-post-mvp-roadmap.md)
-- [Guia de desenvolvimento](DEVELOPMENT-GUIDE/DEVELOPMENT-GUIDE.md)
+- [Agente conversacional e tools](docs/08-whatsapp-agent-tools-plan.md)
 
 ## Critérios de aceite
 
@@ -64,6 +79,8 @@ Ficam fora do MVP: envio de mensagens, Skills de escrita, automações, calendá
 4. Perguntas retornam resposta, evidências e incertezas relevantes.
 5. Correções e exclusões passam pelo domínio e ficam registradas.
 6. Falhas temporárias de processamento podem ser repetidas sem corromper dados.
+7. Replays de mensagens ou tools não repetem efeitos concluídos.
+8. Nenhuma exclusão via agente ocorre sem confirmação válida em um segundo turno.
 
 ## Princípios inegociáveis
 

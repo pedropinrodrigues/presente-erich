@@ -1,0 +1,225 @@
+{
+  "generated_at": "2026-08-16T15:15:44.196973+00:00",
+  "model": "gpt-5.6-luna",
+  "prompt_version": "conversation-2026-08-16-v1",
+  "safe_simulation": true,
+  "case_count": 12,
+  "metrics": {
+    "selection_accuracy": 1.0,
+    "valid_arguments_rate": 1.0,
+    "feedback_rate": 1.0,
+    "forbidden_tool_uses": 0
+  },
+  "cases": [
+    {
+      "id": "agent-001",
+      "expected_first_tool": "list_open_commitments",
+      "required_tool": "list_open_commitments",
+      "tool_calls": [
+        {
+          "name": "list_open_commitments",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 2569,
+      "output_tokens": 47
+    },
+    {
+      "id": "agent-002",
+      "expected_first_tool": "search_memory",
+      "required_tool": "search_memory",
+      "tool_calls": [
+        {
+          "name": "search_memory",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 2689,
+      "output_tokens": 99
+    },
+    {
+      "id": "agent-003",
+      "expected_first_tool": "get_source_status",
+      "required_tool": "get_source_status",
+      "tool_calls": [
+        {
+          "name": "get_source_status",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 2603,
+      "output_tokens": 50
+    },
+    {
+      "id": "agent-004",
+      "expected_first_tool": "remember_transcript",
+      "required_tool": "remember_transcript",
+      "tool_calls": [
+        {
+          "name": "remember_transcript",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 2599,
+      "output_tokens": 56
+    },
+    {
+      "id": "agent-005",
+      "expected_first_tool": "delete_memory",
+      "required_tool": "delete_memory",
+      "tool_calls": [
+        {
+          "name": "delete_memory",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 2631,
+      "output_tokens": 72
+    },
+    {
+      "id": "agent-006",
+      "expected_first_tool": "confirm_action",
+      "required_tool": "confirm_action",
+      "tool_calls": [
+        {
+          "name": "get_pending_action",
+          "arguments_valid": true
+        },
+        {
+          "name": "confirm_action",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 4119,
+      "output_tokens": 68
+    },
+    {
+      "id": "agent-007",
+      "expected_first_tool": "cancel_action",
+      "required_tool": "cancel_action",
+      "tool_calls": [
+        {
+          "name": "get_pending_action",
+          "arguments_valid": true
+        },
+        {
+          "name": "cancel_action",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 4115,
+      "output_tokens": 67
+    },
+    {
+      "id": "agent-008",
+      "expected_first_tool": "correct_memory",
+      "required_tool": "correct_memory",
+      "tool_calls": [
+        {
+          "name": "search_memory",
+          "arguments_valid": true
+        },
+        {
+          "name": "correct_memory",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 4287,
+      "output_tokens": 119
+    },
+    {
+      "id": "agent-009",
+      "expected_first_tool": "dispute_memory",
+      "required_tool": "dispute_memory",
+      "tool_calls": [
+        {
+          "name": "search_memory",
+          "arguments_valid": true
+        },
+        {
+          "name": "dispute_memory",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 4319,
+      "output_tokens": 130
+    },
+    {
+      "id": "agent-010",
+      "expected_first_tool": "list_open_commitments",
+      "required_tool": "list_open_commitments",
+      "tool_calls": [
+        {
+          "name": "list_open_commitments",
+          "arguments_valid": true
+        }
+      ],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 2587,
+      "output_tokens": 46
+    },
+    {
+      "id": "agent-011",
+      "expected_first_tool": null,
+      "required_tool": null,
+      "tool_calls": [],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 1237,
+      "output_tokens": 13
+    },
+    {
+      "id": "agent-012",
+      "expected_first_tool": null,
+      "required_tool": null,
+      "tool_calls": [],
+      "selection_correct": true,
+      "forbidden_tool_used": false,
+      "arguments_valid": true,
+      "feedback_present": true,
+      "input_tokens": 1245,
+      "output_tokens": 17
+    }
+  ]
+}

@@ -75,8 +75,14 @@ Ao excluir uma fonte ou memória, aplicar a política de retenção do workspace
 O model gateway usa o SDK Python oficial da OpenAI e recebe apenas a fonte e o contexto mínimo necessários ao caso de uso. Toda saída de extração deve obedecer a JSON Schema versionado, com campos de evidência obrigatórios e `confidence` entre `0` e `1`. A chamada usa Structured Outputs e `store=false`.
 
 - A versão de modelo, prompt e schema é gravada em cada execução.
-- Extração usa temperatura `0` no MVP para reduzir variação.
-- Saída inválida recebe no máximo uma nova tentativa com instrução de correção; depois o job falha de forma observável.
+- Extração e resposta usam `gpt-5.6-luna` com `reasoning.effort=none`; qualquer alteração exige
+  nova avaliação.
+- Saída inválida é rejeitada pelo schema. Falhas transitórias respeitam os limites de retry do
+  gateway e do job e terminam de forma observável quando esgotadas.
 - Conteúdo da transcrição é dado não confiável, nunca instrução para o sistema ou para ferramentas.
 - Candidatos com `confidence < 0.70` permanecem `proposed` e não mudam a visão atual sem revisão humana ou evidência posterior compatível.
 - LangGraph e LangChain não participam do MVP por padrão; a extração é um workflow Python explícito e testável.
+
+Tools conversacionais não alteram essa regra: elas chamam serviços de domínio tipados, com o
+contexto autenticado injetado pelo backend. O modelo nunca escolhe o workspace e nunca grava
+diretamente nas tabelas.

@@ -1,5 +1,7 @@
 .env.local
 .env
+.env.whatsapp-edge
+supabase/.temp/
 .venv/
 __pycache__/
 .pytest_cache/

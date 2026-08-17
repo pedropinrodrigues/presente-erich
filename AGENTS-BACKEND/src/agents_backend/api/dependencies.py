@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_backend.auth import RequestContext, authenticate_token, resolve_workspace
+from agents_backend.conversation.service import ConversationService
 from agents_backend.db import get_session
 from agents_backend.errors import UnauthorizedError
 
@@ -23,3 +25,11 @@ async def get_request_context(
 
 
 ContextDependency = Annotated[RequestContext, Depends(get_request_context)]
+
+
+@lru_cache
+def get_conversation_service() -> ConversationService:
+    return ConversationService()
+
+
+ConversationServiceDependency = Annotated[ConversationService, Depends(get_conversation_service)]

@@ -6,7 +6,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Response
 
-from agents_backend.api.dependencies import ContextDependency, SessionDependency
+from agents_backend.api.dependencies import (
+    ContextDependency,
+    ConversationServiceDependency,
+    SessionDependency,
+)
 from agents_backend.ingestion.service import get_source, ingest_transcript
 from agents_backend.memory.mutations import (
     correct_memory,
@@ -15,6 +19,8 @@ from agents_backend.memory.mutations import (
 )
 from agents_backend.retrieval.service import ask_memory, get_entity_view, search_memory
 from agents_backend.schemas import (
+    AgentTurnRequest,
+    AgentTurnResponse,
     AskMemoryRequest,
     AskMemoryResponse,
     CorrectionRequest,
@@ -27,6 +33,16 @@ from agents_backend.schemas import (
 )
 
 router = APIRouter(prefix="/v1")
+
+
+@router.post("/agent/turns", response_model=AgentTurnResponse)
+async def post_agent_turn(
+    payload: AgentTurnRequest,
+    session: SessionDependency,
+    context: ContextDependency,
+    conversation_service: ConversationServiceDependency,
+) -> AgentTurnResponse:
+    return await conversation_service.process_api_turn(session, context, payload)
 
 
 @router.post(

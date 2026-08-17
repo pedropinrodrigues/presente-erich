@@ -24,12 +24,18 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr = Field(alias="OPENAI_API_KEY")
     openai_model_extraction: str = Field(alias="OPENAI_MODEL_EXTRACTION")
     openai_model_answering: str = Field(alias="OPENAI_MODEL_ANSWERING")
+    openai_model_conversation: str = Field(
+        default="gpt-5.6-luna", alias="OPENAI_MODEL_CONVERSATION"
+    )
     openai_reasoning_effort_extraction: Literal["none", "low", "medium", "high", "xhigh", "max"] = (
         Field(default="none", alias="OPENAI_REASONING_EFFORT_EXTRACTION")
     )
     openai_reasoning_effort_answering: Literal["none", "low", "medium", "high", "xhigh", "max"] = (
         Field(default="none", alias="OPENAI_REASONING_EFFORT_ANSWERING")
     )
+    openai_reasoning_effort_conversation: Literal[
+        "none", "low", "medium", "high", "xhigh", "max"
+    ] = Field(default="none", alias="OPENAI_REASONING_EFFORT_CONVERSATION")
     openai_model_embedding: str = Field(
         default="text-embedding-3-small", alias="OPENAI_MODEL_EMBEDDING"
     )
@@ -37,6 +43,38 @@ class Settings(BaseSettings):
         default=2.0, alias="WORKER_POLL_INTERVAL_SECONDS", ge=0.1
     )
     worker_max_attempts: int = Field(default=3, alias="WORKER_MAX_ATTEMPTS", ge=1, le=10)
+    conversation_history_messages: int = Field(
+        default=20, alias="CONVERSATION_HISTORY_MESSAGES", ge=2, le=100
+    )
+    conversation_max_steps: int = Field(default=6, alias="CONVERSATION_MAX_STEPS", ge=1, le=12)
+    conversation_max_tool_calls: int = Field(
+        default=6, alias="CONVERSATION_MAX_TOOL_CALLS", ge=1, le=20
+    )
+    conversation_max_output_tokens: int = Field(
+        default=1200, alias="CONVERSATION_MAX_OUTPUT_TOKENS", ge=100, le=8000
+    )
+    pending_action_ttl_seconds: int = Field(
+        default=600, alias="PENDING_ACTION_TTL_SECONDS", ge=60, le=3600
+    )
+    messaging_provider: Literal["telegram", "meta_whatsapp"] = Field(
+        default="telegram", alias="MESSAGING_PROVIDER"
+    )
+    telegram_bot_token: SecretStr | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
+    telegram_bot_username: str | None = Field(default=None, alias="TELEGRAM_BOT_USERNAME")
+    telegram_webhook_secret: SecretStr | None = Field(
+        default=None, alias="TELEGRAM_WEBHOOK_SECRET"
+    )
+    telegram_api_base_url: str = Field(
+        default="https://api.telegram.org", alias="TELEGRAM_API_BASE_URL"
+    )
+    whatsapp_verify_token: SecretStr | None = Field(default=None, alias="WHATSAPP_VERIFY_TOKEN")
+    whatsapp_app_secret: SecretStr | None = Field(default=None, alias="WHATSAPP_APP_SECRET")
+    whatsapp_access_token: SecretStr | None = Field(default=None, alias="WHATSAPP_ACCESS_TOKEN")
+    whatsapp_phone_number_id: str | None = Field(default=None, alias="WHATSAPP_PHONE_NUMBER_ID")
+    whatsapp_graph_api_version: str | None = Field(default=None, alias="WHATSAPP_GRAPH_API_VERSION")
+    whatsapp_graph_api_base_url: str = Field(
+        default="https://graph.facebook.com", alias="WHATSAPP_GRAPH_API_BASE_URL"
+    )
 
     @field_validator("supabase_url")
     @classmethod
@@ -45,6 +83,11 @@ class Settings(BaseSettings):
         if not clean.startswith("https://") or not clean.endswith(".supabase.co"):
             raise ValueError("SUPABASE_URL deve ser uma URL HTTPS de projeto Supabase")
         return clean
+
+    @field_validator("telegram_bot_username")
+    @classmethod
+    def normalize_telegram_bot_username(cls, value: str | None) -> str | None:
+        return value.lstrip("@") if value else None
 
     @property
     def sqlalchemy_url(self) -> str:

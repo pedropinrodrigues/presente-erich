@@ -167,3 +167,74 @@ class ExtractionResult(BaseModel):
     entities: list[EntityCandidate]
     facts: list[FactCandidate]
     commitments: list[CommitmentCandidate]
+
+
+class AgentTurnRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: str = Field(min_length=1, max_length=200)
+    message: str = Field(min_length=1, max_length=20_000)
+    conversation_id: uuid.UUID | None = None
+
+    @field_validator("message")
+    @classmethod
+    def require_non_blank_message(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("message não pode ser vazio")
+        return value
+
+
+class AgentToolUseResponse(BaseModel):
+    name: str
+    status: str
+    risk_level: str
+    idempotent_replay: bool = False
+
+
+class PendingActionResponse(BaseModel):
+    id: uuid.UUID
+    summary: str
+    status: str
+    expires_at: datetime
+
+
+class AgentTurnResponse(BaseModel):
+    conversation_id: uuid.UUID
+    message_id: str
+    answer: str
+    tools_used: list[AgentToolUseResponse] = Field(default_factory=list)
+    pending_action: PendingActionResponse | None = None
+    idempotent_replay: bool = False
+
+
+class WhatsappAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phone_number: str = Field(min_length=8, max_length=30)
+    display_name: str | None = Field(default=None, max_length=200)
+
+
+class WhatsappAccountResponse(BaseModel):
+    id: uuid.UUID
+    phone_number: str
+    display_name: str | None
+    active: bool
+    verified_at: datetime | None
+    verification_phrase: str | None = None
+    verification_expires_at: datetime | None = None
+
+
+class TelegramAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = Field(default=None, max_length=200)
+
+
+class TelegramAccountResponse(BaseModel):
+    id: uuid.UUID
+    bot_username: str
+    display_name: str | None
+    active: bool
+    verified_at: datetime | None
+    verification_deep_link: str | None = None
+    verification_expires_at: datetime | None = None

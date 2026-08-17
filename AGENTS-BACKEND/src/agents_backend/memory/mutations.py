@@ -15,7 +15,11 @@ from agents_backend.schemas import CorrectionRequest, MutationResponse
 
 
 async def correct_memory(
-    session: AsyncSession, context: RequestContext, request: CorrectionRequest
+    session: AsyncSession,
+    context: RequestContext,
+    request: CorrectionRequest,
+    *,
+    commit: bool = True,
 ) -> MutationResponse:
     target: Fact | Commitment | None
     if request.target_type == "fact":
@@ -95,7 +99,10 @@ async def correct_memory(
         event_metadata={"previous_target_id": str(target.id)},
     )
     session.add(audit)
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
     return MutationResponse(
         target_id=resulting_target_id,
         status=(
@@ -114,6 +121,8 @@ async def delete_memory_target(
     context: RequestContext,
     target_id: uuid.UUID,
     reason: str | None,
+    *,
+    commit: bool = True,
 ) -> MutationResponse:
     fact = await session.scalar(
         select(Fact).where(Fact.id == target_id, Fact.workspace_id == context.workspace_id)
@@ -135,11 +144,16 @@ async def delete_memory_target(
         operation="delete",
         reason=reason,
     )
-    return await correct_memory(session, context, request)
+    return await correct_memory(session, context, request, commit=commit)
 
 
 async def delete_source(
-    session: AsyncSession, context: RequestContext, source_id: uuid.UUID, reason: str | None
+    session: AsyncSession,
+    context: RequestContext,
+    source_id: uuid.UUID,
+    reason: str | None,
+    *,
+    commit: bool = True,
 ) -> MutationResponse:
     source = await session.scalar(
         select(Source).where(
@@ -210,5 +224,8 @@ async def delete_source(
         event_metadata={},
     )
     session.add(audit)
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
     return MutationResponse(target_id=source.id, status="deleted", audit_event_id=audit.id)

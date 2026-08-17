@@ -31,7 +31,11 @@ def transcript_payload_hash(event: TranscriptEvent) -> str:
 
 
 async def ingest_transcript(
-    session: AsyncSession, context: RequestContext, event: TranscriptEvent
+    session: AsyncSession,
+    context: RequestContext,
+    event: TranscriptEvent,
+    *,
+    commit: bool = True,
 ) -> tuple[IngestTranscriptResponse, int]:
     payload_hash = transcript_payload_hash(event)
     existing = await session.scalar(
@@ -89,7 +93,10 @@ async def ingest_transcript(
             event_metadata={"capture_id": str(event.capture_id)},
         )
     )
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
     return (
         IngestTranscriptResponse(
             source_id=source.id,
