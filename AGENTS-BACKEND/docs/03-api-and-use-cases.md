@@ -15,6 +15,7 @@ Toda chamada é autenticada e limitada ao usuário/workspace do solicitante. As 
 | `CorrectMemory` | alvo, correção e motivo opcional | alteração auditável e projeção atualizada. |
 | `DeleteMemory` | alvo e escopo | confirmação de exclusão e trabalho derivado quando necessário. |
 | `ProcessAgentTurn` | mensagem, id externo e conversa opcional | resposta, tools e confirmação pendente. |
+| `GetOrchestrationTask` | id da tarefa | estado e resultado seguro da própria tarefa. |
 | `BindTelegramAccount` | usuário autenticado | deep link temporário para prova de posse. |
 
 ## Rotas implementadas
@@ -29,6 +30,7 @@ GET    /v1/entities/{id}
 POST   /v1/memory/corrections
 DELETE /v1/memory/{id}
 POST   /v1/agent/turns
+GET    /v1/orchestration/tasks/{id}
 POST   /v1/channels/telegram/accounts
 POST   /webhooks/telegram
 POST   /v1/channels/whatsapp/accounts
@@ -94,8 +96,10 @@ Retorna `200` com `answer`, `evidence[]`, `uncertainties[]` e `source_ids[]`. Ca
 ```
 
 `message_id` é obrigatório e idempotente por workspace. A primeira resposta cria uma conversa; os
-turnos seguintes reutilizam o `conversation_id` retornado. A saída informa a resposta final,
-`tools_used`, uma possível `pending_action` e se ocorreu replay idempotente.
+turnos seguintes reutilizam o `conversation_id` retornado. A saída informa resposta, `tools_used`,
+uma possível `pending_action`, `orchestration_task_id` e replay. Quando há delegação, a resposta é o
+acknowledgment; o resultado chega posteriormente no canal ou pode ser consultado por
+`GET /v1/orchestration/tasks/{task_id}`.
 
 ### Vínculo do Telegram
 

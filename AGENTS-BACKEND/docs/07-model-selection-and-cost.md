@@ -10,11 +10,14 @@ Configuração do MVP:
 
 - extração: `gpt-5.6-luna`, com `reasoning.effort=none`;
 - resposta fundamentada: `gpt-5.6-luna`, com `reasoning.effort=none`;
+- conversa rápida: `gpt-5.6-luna`, com `reasoning.effort=none`;
+- orquestração de ações: `gpt-5.6-terra`, com `reasoning.effort=medium`;
 - embeddings: `text-embedding-3-small`.
 
-Por decisão do produto, não usar modelos Terra, `gpt-5.4-mini` ou qualquer modelo Nano. O
-`gpt-5-mini` permanece apenas como baseline histórico. O esforço `none` é explícito porque Luna
-usa esforço médio por padrão; qualquer aumento deve ser validado novamente pelos gates.
+Por decisão atual do produto, Terra fica reservado ao orquestrador, enquanto modelos
+`gpt-5.4-mini` e Nano não são usados. O `gpt-5-mini` permanece apenas como baseline histórico. O
+esforço `none` é explícito porque Luna usa esforço médio por padrão; qualquer aumento deve ser
+validado novamente pelos gates.
 
 ## Resultado validado
 

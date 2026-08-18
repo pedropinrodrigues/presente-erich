@@ -46,7 +46,8 @@ externas, múltiplos agentes autônomos e loops agênticos abertos.
 | Memory | Validar, deduplicar e versionar entidades, fatos e compromissos. |
 | Retrieval | Recuperar contexto e evidências para uma pergunta. |
 | Worker | Executar extração e indexação com retry. |
-| Conversation Agent | Interpretar mensagens e executar o loop de function calling. |
+| Agente rápido | Responder consultas de memória e delegar tarefas sem tools de escrita. |
+| Orquestrador | Executar tarefas persistidas com Terra e tools limitadas por capacidade. |
 | Tool Registry | Validar argumentos, política, idempotência e execução de casos de uso. |
 | Telegram adapter | Verificar webhook, normalizar texto, vincular identidade e usar outbox. |
 

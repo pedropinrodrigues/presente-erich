@@ -24,6 +24,28 @@ def test_missing_required_configuration_fails_clearly() -> None:
     assert "OPENAI_API_KEY" in text
 
 
+def test_pooler_reuses_database_password_and_orchestrator_defaults_to_terra() -> None:
+    settings = Settings(
+        _env_file=None,
+        SUPABASE_URL="https://project.supabase.co",
+        SUPABASE_ANON_KEY="anon",
+        SUPABASE_SERVICE_ROLE_KEY="service",
+        DATABASE_URL="postgresql://postgres:secret@db.project.supabase.co:5432/postgres",
+        DATABASE_POOLER_URL=(
+            "postgresql://postgres.project@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+        ),
+        OPENAI_API_KEY="test",
+        OPENAI_MODEL_EXTRACTION="gpt-5.6-luna",
+        OPENAI_MODEL_ANSWERING="gpt-5.6-luna",
+    )  # type: ignore[call-arg]
+
+    assert settings.openai_model_orchestration == "gpt-5.6-terra"
+    assert settings.sqlalchemy_url == (
+        "postgresql+asyncpg://postgres.project:secret@"
+        "aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+    )
+
+
 def test_private_route_requires_authentication() -> None:
     with TestClient(app) as client:
         response = client.get("/v1/memory/search")

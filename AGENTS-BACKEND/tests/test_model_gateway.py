@@ -7,7 +7,7 @@ import pytest
 
 from agents_backend.config import Settings
 from agents_backend.model_gateway.client import AnswerDraft, ModelGateway, deduplicate_extraction
-from agents_backend.schemas import ExtractionResult
+from agents_backend.schemas import ConversationRouteDecision, ExtractionResult
 
 
 class FakeResponses:
@@ -16,11 +16,19 @@ class FakeResponses:
 
     async def parse(self, **kwargs: Any) -> SimpleNamespace:
         self.calls.append(kwargs)
-        parsed = (
-            ExtractionResult(entities=[], facts=[], commitments=[])
-            if kwargs["text_format"] is ExtractionResult
-            else AnswerDraft(answer="Resposta", evidence_ids=[])
-        )
+        if kwargs["text_format"] is ExtractionResult:
+            parsed = ExtractionResult(entities=[], facts=[], commitments=[])
+        elif kwargs["text_format"] is ConversationRouteDecision:
+            parsed = ConversationRouteDecision(
+                route="clarify",
+                understanding="Falta identificar o alvo.",
+                handoff_context="A conversa não identifica qual item deve ser alterado.",
+                user_message="Qual item você quer alterar?",
+                confirmation_status="none",
+                confidence=0.9,
+            )
+        else:
+            parsed = AnswerDraft(answer="Resposta", evidence_ids=[])
         return SimpleNamespace(
             output_parsed=parsed,
             id="response-test",
@@ -83,3 +91,21 @@ async def test_gateway_sends_explicit_reasoning_effort_and_disables_storage() ->
     assert responses.calls[1]["model"] == "gpt-5.6-luna"
     assert responses.calls[1]["reasoning"] == {"effort": "low"}
     assert responses.calls[1]["store"] is False
+
+
+@pytest.mark.asyncio
+async def test_gateway_routes_conversation_with_strict_structured_output() -> None:
+    responses = FakeResponses()
+    client = SimpleNamespace(responses=responses)
+    gateway = ModelGateway(settings=make_settings(), client=client)  # type: ignore[arg-type]
+
+    result = await gateway.route_conversation(
+        instructions="Escolha uma rota.",
+        input_items=[{"role": "user", "content": "Apague aquilo."}],
+        safety_identifier="safe-id",
+    )
+
+    assert isinstance(result.value, ConversationRouteDecision)
+    assert result.value.route == "clarify"
+    assert responses.calls[0]["text_format"] is ConversationRouteDecision
+    assert responses.calls[0]["store"] is False

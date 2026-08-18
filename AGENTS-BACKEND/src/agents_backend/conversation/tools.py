@@ -28,9 +28,18 @@ from agents_backend.models import (
     Conversation,
     Evidence,
     Fact,
+    OrchestrationIntent,
+    OrchestrationTask,
+    OrchestrationTaskEvent,
+    OrchestrationTaskStatus,
     PendingAction,
     Source,
     ToolExecution,
+)
+from agents_backend.orchestration.policies import (
+    ACKNOWLEDGEMENT,
+    capabilities_for_intent,
+    tool_names_for_capabilities,
 )
 from agents_backend.retrieval.service import get_entity_view, search_memory
 from agents_backend.schemas import CorrectionRequest, TranscriptEvent
@@ -109,6 +118,16 @@ class CancelActionArguments(ToolArguments):
     action_id: uuid.UUID | None
 
 
+class DelegateToOrchestratorArguments(ToolArguments):
+    intent: OrchestrationIntent
+    summary: str = Field(min_length=1, max_length=1000)
+    user_request: str = Field(min_length=1, max_length=20_000)
+    handoff_context: str = Field(min_length=1, max_length=5000)
+    acknowledgement: str = Field(min_length=1, max_length=240)
+    confirmation_status: Literal["none", "explicit", "ambiguous", "cancellation"]
+    confidence: float = Field(ge=0, le=1)
+
+
 class ToolEnvelope(BaseModel):
     ok: bool
     code: str
@@ -128,6 +147,7 @@ class ToolContext:
     call_id: str
     idempotency_key: str
     settings: Settings
+    orchestration_task: OrchestrationTask | None = None
 
 
 ToolHandler = Callable[[ToolContext, Any], Awaitable[ToolEnvelope]]
@@ -331,7 +351,10 @@ def _has_explicit_intent(message: str, verbs: set[str]) -> bool:
 
 
 def _is_explicit_confirmation(message: str) -> bool:
-    return _normalize_message(message) in {
+    normalized = _normalize_message(message)
+    if re.search(r"\b(?:nao|nunca|cancele|cancelar|cancelo)\b", normalized):
+        return False
+    if normalized in {
         "sim",
         "confirmo",
         "confirmado",
@@ -342,7 +365,20 @@ def _is_explicit_confirmation(message: str) -> bool:
         "confirmo a exclusao",
         "confirmo essa exclusao",
         "confirmo esta exclusao",
-    }
+    }:
+        return True
+    if re.search(r"\b(?:confirmo|confirmado|autorizo)\b", normalized):
+        return True
+    return bool(
+        re.search(r"\b(?:sim|pode|quero|deve)\b", normalized)
+        and re.search(r"\b(?:apagar|apague|excluir|exclua|remover|remova|prosseguir)\b", normalized)
+    )
+
+
+def _routing_confirmation_status(context: ToolContext) -> str:
+    if context.orchestration_task is None:
+        return "none"
+    return str(context.orchestration_task.routing_context.get("confirmation_status") or "none")
 
 
 async def _get_pending_action(
@@ -358,6 +394,60 @@ async def _get_pending_action(
     )
 
 
+async def _delegate_to_orchestrator(
+    context: ToolContext, arguments: DelegateToOrchestratorArguments
+) -> ToolEnvelope:
+    existing = await context.session.scalar(
+        select(OrchestrationTask).where(
+            OrchestrationTask.workspace_id == context.request_context.workspace_id,
+            OrchestrationTask.inbound_message_id == context.inbound_message.id,
+        )
+    )
+    if existing is not None:
+        return _success(
+            "orchestration_task_queued",
+            ACKNOWLEDGEMENT,
+            {"task_id": str(existing.id), "status": existing.status},
+        )
+
+    task = OrchestrationTask(
+        workspace_id=context.request_context.workspace_id,
+        user_id=context.request_context.identity.user_id,
+        conversation_id=context.conversation.id,
+        inbound_message_id=context.inbound_message.id,
+        intent=arguments.intent.value,
+        request_text=context.inbound_message.content,
+        summary=arguments.summary,
+        routing_context={
+            "route": "delegate",
+            "understanding": arguments.summary,
+            "handoff_context": arguments.handoff_context,
+            "acknowledgement": arguments.acknowledgement,
+            "confirmation_status": arguments.confirmation_status,
+            "confidence": arguments.confidence,
+        },
+        allowed_capabilities=capabilities_for_intent(arguments.intent),
+        status=OrchestrationTaskStatus.QUEUED.value,
+        idempotency_key=f"route:{context.inbound_message.id}:v1",
+        max_attempts=context.settings.orchestration_task_max_attempts,
+    )
+    context.session.add(task)
+    await context.session.flush()
+    context.session.add(
+        OrchestrationTaskEvent(
+            workspace_id=task.workspace_id,
+            orchestration_task_id=task.id,
+            event_type="created",
+            event_metadata={"intent": task.intent},
+        )
+    )
+    return _success(
+        "orchestration_task_queued",
+        ACKNOWLEDGEMENT,
+        {"task_id": str(task.id), "status": task.status},
+    )
+
+
 async def _remember_transcript(
     context: ToolContext, arguments: RememberTranscriptArguments
 ) -> ToolEnvelope:
@@ -369,7 +459,12 @@ async def _remember_transcript(
             "explicit_write_intent_required",
             "A mensagem atual não pede explicitamente para guardar esta transcrição.",
         )
-    capture_id = uuid.uuid5(uuid.NAMESPACE_URL, context.idempotency_key)
+    capture_key = (
+        f"orchestration:{context.orchestration_task.id}:remember_transcript"
+        if context.orchestration_task is not None
+        else context.idempotency_key
+    )
+    capture_id = uuid.uuid5(uuid.NAMESPACE_URL, capture_key)
     event = TranscriptEvent(
         capture_id=capture_id,
         source=(arguments.source or context.conversation.provider).strip(),
@@ -470,6 +565,9 @@ async def _create_pending_action(
         conversation_id=context.conversation.id,
         user_id=context.request_context.identity.user_id,
         created_by_message_id=context.inbound_message.id,
+        orchestration_task_id=(
+            context.orchestration_task.id if context.orchestration_task is not None else None
+        ),
         tool_name=tool_name,
         tool_version=TOOL_VERSION,
         arguments=arguments,
@@ -587,7 +685,10 @@ async def _confirm_action(context: ToolContext, arguments: ConfirmActionArgument
             "confirmation_requires_new_turn",
             "A confirmação precisa ser enviada em uma nova mensagem do usuário.",
         )
-    if not _is_explicit_confirmation(context.inbound_message.content):
+    if (
+        _routing_confirmation_status(context) != "explicit"
+        and not _is_explicit_confirmation(context.inbound_message.content)
+    ):
         return _failure(
             "explicit_confirmation_required",
             "A mensagem atual não é uma confirmação explícita da exclusão.",
@@ -616,6 +717,14 @@ async def _confirm_action(context: ToolContext, arguments: ConfirmActionArgument
         raise AppError("unsupported_pending_action", "A ação pendente não é suportada.", 409)
     action.status = "executed"
     action.executed_at = datetime.now(UTC)
+    if action.orchestration_task_id is not None:
+        original_task = await context.session.get(
+            OrchestrationTask, action.orchestration_task_id
+        )
+        if original_task is not None:
+            original_task.status = OrchestrationTaskStatus.COMPLETED.value
+            original_task.result_code = "confirmed_action_executed"
+            original_task.completed_at = datetime.now(UTC)
     return _success(
         "action_executed",
         "A ação confirmada foi executada.",
@@ -624,7 +733,9 @@ async def _confirm_action(context: ToolContext, arguments: ConfirmActionArgument
 
 
 async def _cancel_action(context: ToolContext, arguments: CancelActionArguments) -> ToolEnvelope:
-    if _normalize_message(context.inbound_message.content) not in {
+    if _routing_confirmation_status(context) != "cancellation" and _normalize_message(
+        context.inbound_message.content
+    ) not in {
         "cancele",
         "cancelar",
         "cancelo",
@@ -647,6 +758,14 @@ async def _cancel_action(context: ToolContext, arguments: CancelActionArguments)
     action = actions[0]
     action.status = "cancelled"
     action.cancelled_at = datetime.now(UTC)
+    if action.orchestration_task_id is not None:
+        original_task = await context.session.get(
+            OrchestrationTask, action.orchestration_task_id
+        )
+        if original_task is not None:
+            original_task.status = OrchestrationTaskStatus.CANCELLED.value
+            original_task.result_code = "pending_action_cancelled"
+            original_task.completed_at = datetime.now(UTC)
     return _success("action_cancelled", "A ação pendente foi cancelada.", _pending_data(action))
 
 
@@ -736,7 +855,39 @@ def default_tool_specs() -> list[ToolSpec]:
             "R1",
             _cancel_action,
         ),
+        ToolSpec(
+            "delegate_to_orchestrator",
+            (
+                "Delega uma alteração, automação, comunicação ou administração para execução "
+                "assíncrona. Não realiza a ação neste turno."
+            ),
+            DelegateToOrchestratorArguments,
+            "R0",
+            _delegate_to_orchestrator,
+        ),
     ]
+
+
+FAST_TOOL_NAMES = {
+    "search_memory",
+    "get_entity",
+    "get_source_status",
+    "list_open_commitments",
+    "get_pending_action",
+}
+
+
+def fast_tool_specs() -> list[ToolSpec]:
+    return [spec for spec in default_tool_specs() if spec.name in FAST_TOOL_NAMES]
+
+
+def delegation_tool_specs() -> list[ToolSpec]:
+    return [spec for spec in default_tool_specs() if spec.name == "delegate_to_orchestrator"]
+
+
+def orchestration_tool_specs(capabilities: list[str]) -> list[ToolSpec]:
+    allowed = tool_names_for_capabilities(capabilities)
+    return [spec for spec in default_tool_specs() if spec.name in allowed]
 
 
 def _normalized_json(raw_arguments: str) -> tuple[dict[str, Any], str]:
@@ -748,22 +899,22 @@ def _normalized_json(raw_arguments: str) -> tuple[dict[str, Any], str]:
 
 
 def _sanitized_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    if tool_name != "remember_transcript" or "transcript" not in arguments:
-        return arguments
-    transcript = str(arguments["transcript"])
-    return {
-        **arguments,
-        "transcript": {
+    sanitized = dict(arguments)
+    for field in ("transcript", "user_request", "handoff_context"):
+        if field not in sanitized:
+            continue
+        value = str(sanitized[field])
+        sanitized[field] = {
             "redacted": True,
-            "length": len(transcript),
-            "sha256": hashlib.sha256(transcript.encode()).hexdigest(),
-        },
-    }
+            "length": len(value),
+            "sha256": hashlib.sha256(value.encode()).hexdigest(),
+        }
+    return sanitized
 
 
 class ToolRegistry:
     def __init__(self, specs: list[ToolSpec] | None = None) -> None:
-        selected = specs or default_tool_specs()
+        selected = default_tool_specs() if specs is None else specs
         self._specs = {spec.name: spec for spec in selected}
 
     def definitions(self) -> list[dict[str, Any]]:
@@ -792,6 +943,7 @@ class ToolRegistry:
         tool_name: str,
         raw_arguments: str,
         settings: Settings | None = None,
+        orchestration_task: OrchestrationTask | None = None,
     ) -> ToolExecutionOutcome:
         spec = self._specs.get(tool_name)
         version = spec.version if spec else "unknown"
@@ -802,7 +954,7 @@ class ToolRegistry:
             parsed = {}
             arguments_hash = hashlib.sha256(raw_arguments.encode()).hexdigest()
         key_material = ":".join(
-            [str(inbound_message.id), call_id, tool_name, version, arguments_hash]
+            [str(agent_run.id), call_id, tool_name, version, arguments_hash]
         )
         idempotency_key = hashlib.sha256(key_material.encode()).hexdigest()
         existing = await session.scalar(
@@ -842,6 +994,9 @@ class ToolRegistry:
                     workspace_id=request_context.workspace_id,
                     conversation_id=conversation.id,
                     agent_run_id=agent_run.id,
+                    orchestration_task_id=(
+                        orchestration_task.id if orchestration_task is not None else None
+                    ),
                     call_id=call_id[:200],
                     tool_name=tool_name[:100],
                     tool_version=version,
@@ -857,6 +1012,9 @@ class ToolRegistry:
                 workspace_id=request_context.workspace_id,
                 conversation_id=conversation.id,
                 agent_run_id=agent_run.id,
+                orchestration_task_id=(
+                    orchestration_task.id if orchestration_task is not None else None
+                ),
                 call_id=call_id[:200],
                 tool_name=tool_name[:100],
                 tool_version=version,
@@ -889,6 +1047,7 @@ class ToolRegistry:
                     call_id=call_id,
                     idempotency_key=idempotency_key,
                     settings=settings or get_settings(),
+                    orchestration_task=orchestration_task,
                 )
                 try:
                     async with session.begin_nested():

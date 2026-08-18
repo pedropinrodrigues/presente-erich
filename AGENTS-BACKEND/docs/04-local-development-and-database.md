@@ -31,13 +31,19 @@ SUPABASE_URL
 SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 DATABASE_URL
+DATABASE_POOLER_URL
 OPENAI_API_KEY
 OPENAI_MODEL_EXTRACTION
 OPENAI_MODEL_ANSWERING
 OPENAI_MODEL_CONVERSATION
+OPENAI_MODEL_ORCHESTRATION
 ```
 
-Os limites do agente possuem defaults seguros em `CONVERSATION_*`. Para integrar o Telegram são
+`DATABASE_POOLER_URL` é opcional, mas recomendado quando a rede local não resolve o endpoint direto
+IPv6 do Postgres. Ele pode omitir a senha; o backend reutiliza em memória a senha de `DATABASE_URL`.
+
+Os limites dos runtimes possuem defaults seguros em `CONVERSATION_*` e `ORCHESTRATION_*`. Para
+integrar o Telegram são
 necessários:
 
 ```text
@@ -57,8 +63,9 @@ O Supabase é a única dependência hospedada do MVP. Migrations Alembic são ap
 
 O banco precisa ter `pgvector` habilitado antes da busca vetorial. A busca textual e os filtros estruturados continuam funcionando mesmo que embeddings ainda não estejam configurados.
 
-A migration `20260816_0002` cria `channel_accounts`, `conversations`, `channel_messages`,
-`agent_runs`, `tool_executions`, `pending_actions` e `outbox_messages`. Aplique com:
+As migrations `20260816_0002` e `20260818_0003` criam a camada conversacional, a outbox ordenada,
+`orchestration_tasks`, eventos e a separação de execuções entre agente rápido e orquestrador.
+Aplique com:
 
 ```bash
 make migrate

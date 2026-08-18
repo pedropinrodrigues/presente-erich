@@ -12,18 +12,23 @@ Telegram Bot API ─────→ Supabase Edge Function
                                 │ mensagem idempotente
                                 ▼
                  Conversation Service ──→ histórico local
-          │
- Conversation Agent ──→ Responses API
-          │ function_call / function_call_output
-          ▼
- Tool Registry ──→ políticas e confirmações
-          │
-   Application layer
-     ├─ Ingestion ──→ PostgreSQL
-     ├─ Memory
-     └─ Retrieval
-          │
- Worker ──→ extração / mensagens / outbox
+                          │
+                  Decisão estruturada (Luna)
+                  ├─ resposta ── tools R0 ─→ Retrieval
+                  ├─ esclarecer/confirmar ─→ usuário
+                  └─ delegar ──────────────→ orchestration_tasks
+                                                │
+                                              Worker
+                                                │
+                                      Orquestrador (Terra)
+                                                │ tools autorizadas
+                                                ▼
+                                     Application layer
+                                       ├─ Ingestion
+                                       ├─ Memory mutations
+                                       └─ integrações futuras
+                                                │
+                                 PostgreSQL ← Outbox → canal
 ```
 
 - **API:** autentica, valida entradas e expõe comandos e consultas.
@@ -33,8 +38,10 @@ Telegram Bot API ─────→ Supabase Edge Function
 - **Retrieval:** combina filtros, busca textual e vetorial para montar uma resposta fundamentada.
 - **Worker:** processa extração e indexação fora da requisição inicial.
 - **Model gateway:** centraliza schemas de saída, timeout, custo, telemetria e troca de fornecedor.
-- **Conversation Agent:** escolhe uma tool permitida e formula o feedback final.
-- **Tool Registry:** injeta o contexto autenticado e controla schema, risco, confirmação e replay.
+- **Luna:** decide de forma estruturada entre responder, esclarecer, pedir confirmação e delegar;
+  responde consultas sem possuir tools de escrita.
+- **Orquestrador:** executa tarefas persistidas com tools limitadas pela intenção/capacidade.
+- **Tool Registry:** injeta contexto, separa catálogos e controla schema, risco, confirmação e replay.
 - **Telegram adapter:** a Edge Function hospedada verifica o segredo do webhook, normaliza texto e
   persiste a entrada antes de o worker responder.
 - **Outbox:** desacopla a resposta lógica do envio pelo provedor.
@@ -86,11 +93,12 @@ tipadas sobre os casos de uso existentes. `POST /v1/agent/turns` oferece o mesmo
 sem depender do provedor. O agente não recebe uma ferramenta HTTP genérica nem controla
 autenticação, `workspace_id` ou acesso ao banco.
 
-Consultas são executadas automaticamente. Mutações exigem intenção explícita reconhecida também
-pelo backend; exclusões criam uma `pending_action` e só podem ser executadas por uma confirmação
-explícita em outro turno. O vínculo do Telegram exige um deep link temporário consumido pelo próprio
-chat. O adaptador WhatsApp fica preservado para uma futura ativação oficial. Os detalhes estão em
-[08-whatsapp-agent-tools-plan.md](08-whatsapp-agent-tools-plan.md).
+Consultas são respondidas no caminho rápido após a decisão estruturada do Luna. Mutações criam uma
+`orchestration_task` com o contexto do Luna, recebem uma mensagem curta somente após a persistência
+e são processadas pelo orquestrador em segundo plano. Exclusões ainda criam uma
+`pending_action` e exigem confirmação explícita em outro turno. A outbox preserva a ordem entre a
+confirmação de recebimento e o resultado final. Veja
+[09-orchestrated-agent-architecture.md](09-orchestrated-agent-architecture.md).
 
 ## Regras de engenharia
 

@@ -4,8 +4,9 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from agents_backend.models import ChannelMessage, Conversation, OutboxMessage
 
@@ -87,12 +88,22 @@ async def claim_outbox_message(
     providers: tuple[str, ...] | None = None,
 ) -> OutboxMessage | None:
     now = datetime.now(UTC)
+    dependency = aliased(OutboxMessage)
     statement = select(OutboxMessage).where(
         or_(
             (OutboxMessage.status.in_(["pending", "retrying"]))
             & (OutboxMessage.available_at <= now),
             (OutboxMessage.status == "sending") & (OutboxMessage.lease_expires_at < now),
-        )
+        ),
+        or_(
+            OutboxMessage.depends_on_outbox_id.is_(None),
+            exists(
+                select(dependency.id).where(
+                    dependency.id == OutboxMessage.depends_on_outbox_id,
+                    dependency.status == "sent",
+                )
+            ),
+        ),
     )
     if providers:
         statement = statement.where(OutboxMessage.provider.in_(providers))

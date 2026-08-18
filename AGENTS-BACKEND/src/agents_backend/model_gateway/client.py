@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from agents_backend.config import Settings, get_settings
-from agents_backend.schemas import ExtractionResult
+from agents_backend.schemas import ConversationRouteDecision, ExtractionResult
 
 EXTRACTION_PROMPT_VERSION = "extraction-2026-08-15-v5"
 ANSWER_PROMPT_VERSION = "answer-2026-08-15-v1"
@@ -255,6 +255,74 @@ class ModelGateway:
             max_output_tokens=self.settings.conversation_max_output_tokens,
             safety_identifier=safety_identifier,
         )
+
+    @retry(
+        retry=retry_if_exception(retryable_model_error),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
+        stop=stop_after_attempt(2),
+        reraise=True,
+    )
+    async def route_conversation(
+        self,
+        *,
+        instructions: str,
+        input_items: list[dict[str, Any]],
+        safety_identifier: str,
+    ) -> GatewayResult:
+        started = time.monotonic()
+        response = await self.client.responses.parse(
+            model=self.settings.openai_model_conversation,
+            reasoning={"effort": self.settings.openai_reasoning_effort_conversation},
+            store=False,
+            instructions=instructions,
+            input=input_items,
+            text_format=ConversationRouteDecision,
+            max_output_tokens=self.settings.conversation_max_output_tokens,
+            safety_identifier=safety_identifier,
+        )
+        parsed = response.output_parsed
+        if parsed is None:
+            raise ValueError("A decisão de rota não contém saída estruturada válida")
+        usage = getattr(response, "usage", None)
+        return GatewayResult(
+            value=parsed,
+            provider_request_id=getattr(response, "id", None),
+            model=self.settings.openai_model_conversation,
+            prompt_version="conversation-router-2026-08-18-v3",
+            schema_version="conversation-route-v2",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            input_tokens=getattr(usage, "input_tokens", None),
+            output_tokens=getattr(usage, "output_tokens", None),
+        )
+
+    @retry(
+        retry=retry_if_exception(retryable_model_error),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
+        stop=stop_after_attempt(2),
+        reraise=True,
+    )
+    async def orchestration_response(
+        self,
+        *,
+        instructions: str,
+        input_items: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        safety_identifier: str,
+    ) -> Any:
+        request: dict[str, Any] = {
+            "model": self.settings.openai_model_orchestration,
+            "reasoning": {"effort": self.settings.openai_reasoning_effort_orchestration},
+            "store": False,
+            "instructions": instructions,
+            "input": input_items,
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "max_output_tokens": self.settings.orchestration_max_output_tokens,
+            "safety_identifier": safety_identifier,
+        }
+        if tools:
+            request["tools"] = tools
+        return await self.client.responses.create(**request)
 
     async def embed(self, text: str) -> list[float]:
         response = await self.client.embeddings.create(

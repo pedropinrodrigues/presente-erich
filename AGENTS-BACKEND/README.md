@@ -1,8 +1,9 @@
 # Agents & Backend MVP
 
-Backend em FastAPI que transforma transcrições em memória pesquisável e permite que um agente
-converse com o usuário por HTTP ou Telegram usando tools controladas. Supabase hospeda Auth,
-PostgreSQL e o gateway público do webhook; API e worker Python executam localmente nesta fase.
+Backend em FastAPI que transforma transcrições em memória pesquisável. O Luna produz uma decisão
+estruturada para responder, esclarecer, pedir confirmação ou delegar; um orquestrador Terra pondera
+e executa ações persistidas por tools controladas. Supabase hospeda Auth, PostgreSQL e o gateway
+público do webhook; API e worker Python executam localmente nesta fase.
 
 ## Preparação
 
@@ -19,6 +20,9 @@ Preencha `.env.local` sem versionar segredos. Em seguida:
 make migrate
 make api
 ```
+
+Quando necessário, `DATABASE_POOLER_URL` permite usar o pooler oficial do Supabase sem duplicar a
+senha já armazenada em `DATABASE_URL`.
 
 Em outro terminal, com o ambiente ativado:
 
@@ -70,7 +74,8 @@ curl -X POST http://127.0.0.1:8000/v1/agent/turns \
   -d '{"message_id":"teste-001","message":"Quais são minhas pendências?"}'
 ```
 
-A resposta contém `conversation_id`, texto final, `tools_used` e eventual `pending_action`. Reenvie
+A resposta contém `conversation_id`, texto, `tools_used`, eventual `pending_action` e
+`orchestration_task_id`. Reenvie
 o mesmo `message_id` e conteúdo para obter a resposta persistida sem repetir efeitos. Para continuar
 a conversa, envie o `conversation_id` retornado com um novo `message_id`.
 

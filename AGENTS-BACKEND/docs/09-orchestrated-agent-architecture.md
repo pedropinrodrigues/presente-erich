@@ -2,12 +2,13 @@
 
 ## Estado
 
-Este documento define a próxima evolução da camada de agentes. O runtime atual possui um único
-\`ConversationAgent\`: ele responde, consulta memória e também executa tools de escrita. A separação
-descrita aqui ainda **não está implementada**.
+Implementado em 18 de agosto de 2026. O runtime ativo separa a decisão estruturada do Luna, o
+caminho rápido de consulta e o orquestrador assíncrono Terra, com tarefas persistidas, contexto de
+handoff, catálogos por capacidade, auditoria e ordem de entrega pela outbox. As migrations
+correspondentes são `20260818_0003` e `20260818_0004`.
 
-Este guia deve ser executado antes de [Convites e contas pelo Telegram](10-telegram-invites-and-accounts.md).
-O fluxo de convite usará as fronteiras, a fila de tarefas e a autorização descritas aqui.
+Esta etapa foi concluída antes de [Convites e contas pelo Telegram](10-telegram-invites-and-accounts.md).
+O futuro fluxo de convite usará as fronteiras, a fila de tarefas e a autorização descritas aqui.
 
 ## Objetivo
 
@@ -17,25 +18,27 @@ delegada a um orquestrador assíncrono, mais capaz e com catálogo próprio de t
 
 O usuário continua falando com um único bot:
 
-\`\`\`text
+```text
 Pergunta simples                 Tarefa que exige ação
       │                                     │
       ▼                                     ▼
-Resposta fundamentada                  “Estou verificando isso...”
+Resposta fundamentada                  confirmação curta do Luna
 no mesmo turno                              │
                                             ▼
                                   execução em segundo plano
                                             │
                                             ▼
                                   resposta final no mesmo chat
-\`\`\`
+```
 
-Não haverá conversa livre entre agentes. O handoff é uma tarefa estruturada, persistida e auditável;
-o orquestrador nunca usa texto livre do primeiro agente como autoridade.
+Não haverá conversa livre entre agentes. O handoff é uma tarefa estruturada, persistida e auditável.
+O Luna registra o que entendeu e um contexto operacional explicativo; o orquestrador os pondera
+contra a mensagem original, que permanece a autoridade.
 
 ## Decisões
 
-- Há um **roteador determinístico**, um **agente rápido** e um **agente orquestrador**.
+- Há um **roteador de comandos**, uma **decisão estruturada do Luna**, um caminho rápido de leitura
+  e um **agente orquestrador**.
 - Comandos conhecidos são tratados antes de chamar qualquer modelo.
 - O agente rápido só pode consultar memória e criar uma tarefa; ele não altera domínio nem chama
   integrações externas.
@@ -51,21 +54,21 @@ o orquestrador nunca usa texto livre do primeiro agente como autoridade.
 
 | Componente | Responsabilidade | Não pode fazer |
 | --- | --- | --- |
-| Roteador | Comandos, validação e rota determinística. | Executar tools livres. |
-| Agente rápido | Consulta, resposta e decisão responder/delegar. | Escrever, apagar, automatizar ou integrar. |
+| Roteador | Comandos conhecidos e validação do contrato. | Classificar texto livre ou executar tools livres. |
+| Luna | Decide responder, esclarecer, pedir confirmação ou delegar; consulta no caminho rápido. | Escrever, apagar, automatizar ou integrar. |
 | Serviço de tarefas | Handoff, estado, ordem de mensagens e idempotência. | Escolher tools ou redigir resposta. |
 | Orquestrador | Planejar e executar tarefa autorizada. | Acessar banco, HTTP ou segredos diretamente. |
 | Workflow de domínio | Regras concretas: ingestão, e-mail, lembrete, convite. | Decidir livremente ações. |
 | Worker/outbox | Processar tarefas e entregar mensagens com retry. | Reinterpretar intenção. |
 
-O agente rápido substitui o papel atual do \`ConversationAgent\` para o caminho de leitura. O
+O agente rápido substitui o papel atual do `ConversationAgent` para o caminho de leitura. O
 orquestrador é um runtime separado, não apenas um novo prompt com todas as tools.
 
 ## Fluxo
 
 ### Entrada e roteamento
 
-\`\`\`text
+```text
 Telegram ou HTTP autenticado
         │
         ▼
@@ -75,46 +78,49 @@ Gateway do canal / API
 Roteador determinístico
         ├─ comando conhecido ─────→ caso de uso direto
         └─ texto livre ───────────→ agente rápido
-\`\`\`
+```
 
-Comandos como \`/ajuda\`, e futuramente \`/convidar\`, não usam modelo quando puderem ser atendidos
+Comandos como `/ajuda`, e futuramente `/convidar`, não usam modelo quando puderem ser atendidos
 com segurança. Eles chamam o mesmo caso de uso que uma tool usaria e respondem pela outbox.
 
 ### Caminho rápido
 
-O agente rápido recebe histórico, instruções de segurança e tools R0 de leitura. Em “o que foi
-decidido sobre o Projeto Alfa?”, ele chama \`search_memory\`/\`get_entity\`, recebe evidências e
-responde no mesmo processamento.
+O Luna recebe histórico e ações pendentes e primeiro retorna uma saída estruturada estrita. Nela,
+registra `understanding`, `handoff_context`, `confidence`, `confirmation_status` e uma das rotas
+`answer`, `delegate`, `clarify` ou `request_confirmation`. Em delegações, também cria uma frase
+variável de `acknowledgement`. Em `answer`, o caminho rápido recebe apenas tools R0 de leitura.
+Em “o que foi decidido sobre o Projeto Alfa?”, consulta evidências e responde no mesmo processamento.
 
-\`\`\`text
+```text
 Mensagem → agente rápido → tools R0 → resposta final → outbox
-\`\`\`
+```
 
 Ele declara incerteza quando faltarem evidências e nunca inventa fatos sobre o usuário.
 
 ### Delegação
 
-Quando a mensagem exige alteração, automação ou integração, o agente rápido chama somente
-\`delegate_to_orchestrator\`. Essa tool não realiza o pedido: ela persiste uma tarefa e uma mensagem
-curta de recebimento.
+Quando a mensagem exige alteração, automação ou integração, o Luna escolhe `delegate`. O backend
+valida essa decisão e chama internamente `delegate_to_orchestrator`. Essa operação não realiza o
+pedido: persiste a tarefa com o contexto do Luna. O Luna varia a mensagem curta conforme a conversa,
+mas o backend só a envia depois que a tarefa existe.
 
-\`\`\`text
+```text
 “Guarde esta reunião e lembre-me de cobrar a Ana amanhã”
         │
         ▼
-Agente rápido chama delegate_to_orchestrator
+Luna decide delegate; backend persiste o handoff
         │
         ├─ orchestration_task persistida
-        ├─ outbox: “Estou verificando isso e já te retorno.”
+        ├─ outbox: confirmação curta e contextual gerada pelo Luna
         └─ worker do orquestrador
-\`\`\`
+```
 
-O agente rápido não deve alegar sucesso. O orquestrador produz a conclusão, falha segura ou pedido
-de esclarecimento.
+O Luna não alega sucesso. O Terra recebe a mensagem original, o entendimento e o contexto do Luna,
+pondera se as tools permitidas atendem ao pedido e produz conclusão, limitação ou esclarecimento.
 
 ### Execução e retorno
 
-\`\`\`text
+```text
 Worker reivindica orchestration_task
         │
         ▼
@@ -128,51 +134,57 @@ Resultado estruturado + auditoria
         │
         ▼
 Mensagem final pela outbox → mesmo chat
-\`\`\`
+```
 
-A outbox deve preservar a ordem: a mensagem final terá \`depends_on_outbox_id\` ou uma sequência
+A outbox deve preservar a ordem: a mensagem final terá `depends_on_outbox_id` ou uma sequência
 atômica por conversa apontando para a mensagem de recebimento. Retry não pode inverter as mensagens.
 
 ## Política de rota
 
-O agente rápido escolhe somente:
+O Luna escolhe somente:
 
-\`\`\`text
-answer_now
-delegate_to_orchestrator
-ask_clarifying_question
-\`\`\`
+```text
+answer
+delegate
+clarify
+request_confirmation
+```
 
 | Intenção | Rota | Exemplo |
 | --- | --- | --- |
-| Pergunta sobre memória, fonte, entidade ou compromisso | \`answer_now\` | “Qual o prazo da proposta?” |
-| Pergunta geral segura | \`answer_now\` | “Como você pode me ajudar?” |
+| Pergunta sobre memória, fonte, entidade ou compromisso | `answer` | “Qual o prazo da proposta?” |
+| Pergunta geral segura | `answer` | “Como você pode me ajudar?” |
 | Salvar, corrigir, contestar ou apagar informação | Delegar | “Guarde isto” |
 | Criar, mudar ou cancelar automação | Delegar | “Me lembre amanhã” |
 | Agir fora do sistema | Delegar | “Envie um e-mail” |
 | Administrar conta/canais/convites | Comando ou delegar | “Crie um convite” |
 | Alteração ambígua | Esclarecer | “Arrume meu cadastro” |
+| Ação pendente com resposta ambígua | Pedir confirmação | “Essa decisão deve mesmo ser apagada” |
+| Ação pendente com confirmação clara | Delegar e executar | “É exatamente isso que eu quero” |
 
 O executor valida novamente intenção e argumentos. A segurança nunca pode depender apenas da
 classificação do primeiro modelo.
 
 ## Contrato do handoff
 
-\`delegate_to_orchestrator\` recebe argumentos mínimos. O modelo não informa \`user_id\`,
-\`workspace_id\`, permissões, destino externo ou risco.
+Após a rota `delegate`, `delegate_to_orchestrator` recebe argumentos mínimos. O modelo não informa `user_id`,
+`workspace_id`, permissões, destino externo ou risco.
 
-\`\`\`json
+```json
 {
   "intent": "memory_and_reminder",
   "summary": "Guardar a reunião enviada e criar lembrete de cobrança para Ana amanhã.",
   "user_request": "Guarde esta reunião e me lembre de cobrar a Ana amanhã",
-  "requires_clarification": false
+  "handoff_context": "O usuário pediu duas ações; Ana é o alvo da cobrança e amanhã é o prazo informado.",
+  "acknowledgement": "Vou cuidar disso e retorno com o resultado.",
+  "confirmation_status": "none",
+  "confidence": 0.96
 }
-\`\`\`
+```
 
 O serviço completa e persiste o envelope:
 
-\`\`\`json
+```json
 {
   "id": "uuid",
   "workspace_id": "resolvido pelo backend",
@@ -184,63 +196,71 @@ O serviço completa e persiste o envelope:
   "intent": "memory_and_reminder",
   "allowed_capabilities": ["ingestion", "reminders", "memory_read"],
   "request_text": "texto original da mensagem",
-  "summary": "resumo não autoritativo"
+  "summary": "entendimento resumido do Luna",
+  "routing_context": {
+    "understanding": "o que o Luna identificou",
+    "handoff_context": "contexto operacional explicativo",
+    "acknowledgement": "Vou cuidar disso e retorno com o resultado.",
+    "confirmation_status": "none",
+    "confidence": 0.96
+  }
 }
-\`\`\`
+```
 
-\`intent\` é uma enum controlada pelo backend. Valores iniciais: \`memory_write\`,
-\`memory_correction\`, \`memory_deletion\`, \`automation\`, \`external_communication\`,
-\`account_management\` e \`invite_management\`.
+`intent` é uma enum controlada pelo backend. Valores iniciais: `memory_write`,
+`memory_correction`, `memory_deletion`, `automation`, `external_communication`,
+`account_management` e `invite_management`.
 
-O orquestrador recebe texto original, resumo auditável e capacidades compatíveis com a intenção. Se
-o resumo não for sustentado pela mensagem original, ele deve pedir esclarecimento ou encerrar com
-segurança.
+O orquestrador recebe texto original, contexto auditável e capacidades compatíveis com a intenção.
+Ele decide quais tools usar; se não possuir a capacidade, explica a limitação. Se o contexto não for
+sustentado pela mensagem original, pede esclarecimento ou encerra com segurança.
 
 ## Persistência de tarefas
 
-Criar \`orchestration_tasks\` em migration posterior à camada conversacional atual.
+Criar `orchestration_tasks` em migration posterior à camada conversacional atual.
 
 | Campo | Regra |
 | --- | --- |
-| \`id\` | UUID da tarefa. |
-| \`workspace_id\`, \`user_id\`, \`conversation_id\` | Contexto obtido do backend. |
-| \`inbound_message_id\` | Origem única da intenção. |
-| \`intent\` | Enum controlada. |
-| \`request_text\` | Mensagem original necessária à execução. |
-| \`summary\` | Resumo não autoritativo e auditável. |
-| \`allowed_capabilities\` | Lista calculada por política. |
-| \`status\` | \`queued\`, \`running\`, \`waiting_confirmation\`, \`completed\`, \`failed\`, \`cancelled\`. |
-| Retry | \`idempotency_key\`, tentativas, disponibilidade e lease. |
-| Outbox | \`ack_outbox_id\` e \`result_outbox_id\`. |
-| Resultado | \`result_code\`, \`error_code\`, timestamps. |
+| `id` | UUID da tarefa. |
+| `workspace_id`, `user_id`, `conversation_id` | Contexto obtido do backend. |
+| `inbound_message_id` | Origem única da intenção. |
+| `intent` | Enum controlada. |
+| `request_text` | Mensagem original necessária à execução. |
+| `summary` | Resumo não autoritativo e auditável. |
+| `routing_context` | Entendimento, contexto de handoff e confiança produzidos pelo Luna. |
+| `allowed_capabilities` | Lista calculada por política. |
+| `status` | `queued`, `running`, `waiting_confirmation`, `completed`, `failed`, `cancelled`. |
+| Retry | `idempotency_key`, tentativas, disponibilidade e lease. |
+| Outbox | `ack_outbox_id` e `result_outbox_id`. |
+| Resultado | `result_code`, `error_code`, timestamps. |
 
-Criar \`orchestration_task_events\` append-only para criação, início, tool chamada, confirmação,
-conclusão e falha. \`tool_executions\` deve receber \`orchestration_task_id\` anulável.
+Criar `orchestration_task_events` append-only para criação, início, tool chamada, confirmação,
+conclusão e falha. `tool_executions` deve receber `orchestration_task_id` anulável.
 
-\`\`\`text
+```text
 UNIQUE(workspace_id, idempotency_key)
 UNIQUE(inbound_message_id) para uma delegação lógica por mensagem
 INDEX(status, available_at)
 INDEX(conversation_id, created_at DESC)
-\`\`\`
+```
 
-Resultado persistido e \`ToolExecution\` concluída sempre prevalecem sobre nova execução do modelo.
+Resultado persistido e `ToolExecution` concluída sempre prevalecem sobre nova execução do modelo.
 
 ## Catálogos de tools
 
 ### Agente rápido
 
-\`\`\`text
+```text
 search_memory
 get_entity
 get_source_status
 list_open_commitments
 get_pending_action
-delegate_to_orchestrator
-\`\`\`
+```
 
-As cinco primeiras são R0. A tool de delegação só cria tarefa e acknowledgment; ela não aceita nome
-arbitrário de tool nem capacidades fornecidas pelo modelo.
+As cinco tools são R0. Após uma decisão estruturada `delegate`, o backend usa internamente a
+operação de delegação, que só cria tarefa; ela não aceita nome arbitrário de tool nem capacidades
+fornecidas pelo modelo. O acknowledgment é responsabilidade do serviço após a tarefa existir.
 
 ### Orquestrador
 
@@ -248,14 +268,14 @@ O catálogo é limitado por intenção, nunca global.
 
 | Intenção | Capacidades/tools iniciais |
 | --- | --- |
-| \`memory_write\` | \`submit_transcript\`, consultas de memória. |
-| \`memory_correction\` | \`correct_memory\`, consultas de memória. |
-| \`memory_deletion\` | \`delete_memory\`, \`delete_source\`, \`confirm_action\`. |
-| \`automation\` | Tools de lembrete/automações quando existirem. |
-| \`external_communication\` | Preparar, confirmar e enviar comunicação quando a integração existir. |
-| \`invite_management\` | Criação/listagem/revogação após o guia 10. |
+| `memory_write` | `submit_transcript`, consultas de memória. |
+| `memory_correction` | `correct_memory`, consultas de memória. |
+| `memory_deletion` | `delete_memory`, `delete_source`, `confirm_action`. |
+| `automation` | Tools de lembrete/automações quando existirem. |
+| `external_communication` | Preparar, confirmar e enviar comunicação quando a integração existir. |
+| `invite_management` | Criação/listagem/revogação após o guia 10. |
 
-Schema Pydantic estrito, validação de domínio, idempotência e \`RequestContext\` seguem obrigatórios.
+Schema Pydantic estrito, validação de domínio, idempotência e `RequestContext` seguem obrigatórios.
 Nenhum runtime recebe SQL, HTTP genérico, segredos ou contexto fornecido pelo cliente.
 
 ## Risco e confirmações
@@ -266,14 +286,15 @@ Nenhum runtime recebe SQL, HTTP genérico, segredos ou contexto fornecido pelo c
 | R1 | Salvar transcrição, criar lembrete. | Intenção explícita e auditoria. |
 | R2 | Excluir memória ou ação externa irreversível. | Ação pendente e confirmação em outro turno. |
 
-Para comunicação externa, começar com “preparar → mostrar resumo → confirmar → enviar”. Uma
-confirmação só retoma a tarefa/ação pendente do mesmo usuário, workspace e conversa.
+Para comunicação externa, começar com “preparar → mostrar resumo → confirmar → enviar”. Uma única
+confirmação posterior clara é suficiente: o Luna registra `confirmation_status=explicit` e o
+orquestrador retoma a ação pendente do mesmo usuário, workspace e conversa sem perguntar novamente.
 
 ## Workflows de domínio
 
 O orquestrador coordena; serviços executam regras concretas:
 
-\`\`\`text
+```text
 submit_transcript
   → ingest_transcript
   → Source + Job
@@ -285,7 +306,7 @@ send_email (futuro)
   → outbox de e-mail idempotente
   → provedor de e-mail
   → registrar entrega
-\`\`\`
+```
 
 O processamento de transcrição permanece determinístico e testável. Não criar um “agente de
 ingestão” com poder geral; criar uma tool estreita que aciona o caso de uso atual.
@@ -294,41 +315,41 @@ ingestão” com poder geral; criar uma tool estreita que aciona o caso de uso a
 
 Separar configuração e telemetria:
 
-\`\`\`text
+```text
 OPENAI_MODEL_CONVERSATION=...
 OPENAI_REASONING_EFFORT_CONVERSATION=...
-OPENAI_MODEL_ORCHESTRATION=...
+OPENAI_MODEL_ORCHESTRATION=gpt-5.6-terra
 OPENAI_REASONING_EFFORT_ORCHESTRATION=...
 ORCHESTRATION_MAX_STEPS=...
 ORCHESTRATION_MAX_TOOL_CALLS=...
 ORCHESTRATION_TASK_MAX_ATTEMPTS=...
-\`\`\`
+```
 
 O modelo de conversa prioriza latência e decisão responder/delegar. O modelo do orquestrador pode
-ser mais capaz, pois é chamado apenas em tarefas de ação. Cada \`agent_run\` deve guardar tipo
-(\`conversation\` ou \`orchestration\`), modelo, prompt, duração, tokens, task ID e resultado.
+ser mais capaz, pois é chamado apenas em tarefas de ação. Cada `agent_run` deve guardar tipo
+(`conversation` ou `orchestration`), modelo, prompt, duração, tokens, task ID e resultado.
 
 ## Alterações esperadas no código
 
 | Componente | Alteração |
 | --- | --- |
-| \`conversation/runtime.py\` | Runtime do agente rápido, com tools de leitura. |
-| \`conversation/tools.py\` | Separar registries e adicionar delegação. |
-| \`conversation/service.py\` | Roteador, acknowledgment e respostas rápidas. |
-| \`orchestration/runtime.py\` | Novo loop de function calling. |
-| \`orchestration/service.py\` | Criar, reivindicar, executar e concluir tarefas. |
-| \`orchestration/policies.py\` | Intenção, capacidades, risco e mensagem curta. |
-| \`models.py\` | Tarefas, eventos e FK de \`ToolExecution\`. |
-| \`worker/main.py\` | Reivindicar tarefas e preservar prioridade de entrega. |
-| \`worker/service.py\` | Manter extração como workflow separado. |
-| \`evaluation/\` | Dataset de roteamento e avaliação do orquestrador. |
+| `conversation/runtime.py` | Runtime do agente rápido, com tools de leitura. |
+| `conversation/tools.py` | Separar registries e adicionar delegação. |
+| `conversation/service.py` | Roteador, acknowledgment e respostas rápidas. |
+| `orchestration/runtime.py` | Novo loop de function calling. |
+| `orchestration/service.py` | Criar, reivindicar, executar e concluir tarefas. |
+| `orchestration/policies.py` | Intenção, capacidades, risco e mensagem curta. |
+| `models.py` | Tarefas, eventos e FK de `ToolExecution`. |
+| `worker/main.py` | Reivindicar tarefas e preservar prioridade de entrega. |
+| `worker/service.py` | Manter extração como workflow separado. |
+| `evaluation/` | Dataset de roteamento e avaliação do orquestrador. |
 
 ## Plano de implementação
 
 ### Etapa 1 — contrato e dados
 
 - Criar enum de intenções, políticas de capacidade e schemas estritos.
-- Adicionar tarefas, eventos e FK opcional em \`tool_executions\`.
+- Adicionar tarefas, eventos e FK opcional em `tool_executions`.
 - Criar migration e índices, sem mudar fluxo ativo.
 
 **Gate:** tarefa pode ser criada, reprocessada e auditada sem modelo ou tool de domínio.
@@ -337,8 +358,8 @@ ser mais capaz, pois é chamado apenas em tarefas de ação. Cada \`agent_run\` 
 
 - Separar tools atuais em leitura e ação.
 - Remover escrita/destruição do runtime de conversa.
-- Adicionar \`delegate_to_orchestrator\` e prompt de decisão.
-- Manter \`POST /v1/agent/turns\` para testar caminho rápido.
+- Adicionar saída estruturada de rota e handoff interno para `delegate_to_orchestrator`.
+- Manter `POST /v1/agent/turns` para testar caminho rápido.
 
 **Gate:** escrita cria tarefa, mas não altera memória pelo agente rápido.
 
@@ -346,9 +367,9 @@ ser mais capaz, pois é chamado apenas em tarefas de ação. Cada \`agent_run\` 
 
 - Implementar leasing, retry e estados de tarefa.
 - Criar runtime separado e catálogo por política.
-- Migrar \`remember_transcript\`, correções, contestações e exclusões ao orquestrador.
+- Migrar `remember_transcript`, correções, contestações e exclusões ao orquestrador.
 
-**Gate:** guardar transcrição cria \`Source\` e job de extração; replay não duplica fonte/tarefa.
+**Gate:** guardar transcrição cria `Source` e job de extração; replay não duplica fonte/tarefa.
 
 ### Etapa 4 — experiência de duas mensagens
 
@@ -360,7 +381,7 @@ ser mais capaz, pois é chamado apenas em tarefas de ação. Cada \`agent_run\` 
 
 ### Etapa 5 — confirmação e comandos
 
-- Vincular \`pending_actions\` a tarefas quando necessário.
+- Vincular `pending_actions` a tarefas quando necessário.
 - Garantir confirmação posterior no mesmo contexto.
 - Adicionar comandos determinísticos úteis.
 

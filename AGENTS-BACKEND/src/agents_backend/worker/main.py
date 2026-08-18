@@ -19,6 +19,12 @@ from agents_backend.conversation.whatsapp import WhatsAppClient
 from agents_backend.db import get_engine, get_session_factory
 from agents_backend.logging import configure_logging
 from agents_backend.model_gateway.client import ModelGateway
+from agents_backend.orchestration.runtime import OrchestrationAgent
+from agents_backend.orchestration.service import (
+    OrchestrationService,
+    claim_orchestration_task,
+    process_orchestration_task_job,
+)
 from agents_backend.worker.service import claim_job, default_worker_id, process_job
 
 logger = logging.getLogger(__name__)
@@ -32,6 +38,9 @@ async def worker_loop() -> None:
     conversation_service = ConversationService(
         settings=settings,
         agent=ConversationAgent(settings=settings, gateway=gateway),
+    )
+    orchestration_service = OrchestrationService(
+        OrchestrationAgent(settings=settings, gateway=gateway)
     )
     clients: dict[str, ChannelClient]
     if settings.messaging_provider == TELEGRAM_PROVIDER:
@@ -58,6 +67,13 @@ async def worker_loop() -> None:
                 )
                 if outbox_message is not None:
                     await process_outbox_message(session, outbox_message, clients)
+                    processed = True
+            async with get_session_factory()() as session:
+                orchestration_task = await claim_orchestration_task(session, worker_id)
+                if orchestration_task is not None:
+                    await process_orchestration_task_job(
+                        session, orchestration_task, orchestration_service
+                    )
                     processed = True
             async with get_session_factory()() as session:
                 job = await claim_job(session, worker_id)

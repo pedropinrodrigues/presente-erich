@@ -15,6 +15,7 @@ from agents_backend.models import (
     ChannelAccount,
     ChannelMessage,
     Conversation,
+    OrchestrationTask,
     OutboxMessage,
     PendingAction,
     ToolExecution,
@@ -28,6 +29,7 @@ from agents_backend.schemas import (
 
 from .phone_numbers import whatsapp_phone_aliases
 from .providers import API_PROVIDER, TELEGRAM_PROVIDER, WHATSAPP_PROVIDER
+from .router import route_command
 from .runtime import ConversationAgent, ConversationAgentResult
 
 
@@ -88,7 +90,10 @@ class ConversationService:
         outbound: ChannelMessage,
     ) -> AgentTurnResponse:
         run = await session.scalar(
-            select(AgentRun).where(AgentRun.inbound_message_id == inbound.id)
+            select(AgentRun).where(
+                AgentRun.inbound_message_id == inbound.id,
+                AgentRun.run_type == "conversation",
+            )
         )
         executions: list[ToolExecution] = []
         if run is not None:
@@ -111,6 +116,11 @@ class ConversationService:
             .order_by(PendingAction.created_at.desc())
         )
         original_id = str(inbound.message_metadata.get("client_message_id") or "")
+        orchestration_task = await session.scalar(
+            select(OrchestrationTask).where(
+                OrchestrationTask.inbound_message_id == inbound.id
+            )
+        )
         return AgentTurnResponse(
             conversation_id=inbound.conversation_id,
             message_id=original_id,
@@ -125,6 +135,9 @@ class ConversationService:
                 for execution in executions
             ],
             pending_action=_pending_response(pending),
+            orchestration_task_id=(
+                orchestration_task.id if orchestration_task is not None else None
+            ),
             idempotent_replay=True,
         )
 
@@ -156,12 +169,18 @@ class ConversationService:
                     "O message_id pertence a outra conversa.",
                 )
             outbound = await session.scalar(
-                select(ChannelMessage).where(ChannelMessage.reply_to_message_id == existing.id)
+                select(ChannelMessage)
+                .where(ChannelMessage.reply_to_message_id == existing.id)
+                .order_by(ChannelMessage.created_at)
+                .limit(1)
             )
             if outbound is not None:
                 return await self._replayed_response(session, existing, outbound)
             existing_run = await session.scalar(
-                select(AgentRun).where(AgentRun.inbound_message_id == existing.id)
+                select(AgentRun).where(
+                    AgentRun.inbound_message_id == existing.id,
+                    AgentRun.run_type == "conversation",
+                )
             )
             if existing.status == "processing" and (
                 existing_run is None or existing_run.status == "running"
@@ -210,7 +229,10 @@ class ConversationService:
                     "O message_id já foi usado com outro conteúdo.",
                 ) from None
             outbound = await session.scalar(
-                select(ChannelMessage).where(ChannelMessage.reply_to_message_id == concurrent.id)
+                select(ChannelMessage)
+                .where(ChannelMessage.reply_to_message_id == concurrent.id)
+                .order_by(ChannelMessage.created_at)
+                .limit(1)
             )
             if outbound is not None:
                 return await self._replayed_response(session, concurrent, outbound)
@@ -220,16 +242,25 @@ class ConversationService:
             ) from None
 
         inbound_id = inbound.id
-        try:
-            result = await self.agent.run(session, context, conversation, inbound)
-        except Exception:
-            await session.rollback()
-            fresh_inbound = await session.get(ChannelMessage, inbound_id)
-            if fresh_inbound is not None:
-                fresh_inbound.status = "failed"
-                fresh_inbound.error_code = "conversation_agent_unavailable"
-                await session.commit()
-            raise
+        command = route_command(inbound.content)
+        if command is not None:
+            result = ConversationAgentResult(
+                answer=command.answer,
+                run_id=uuid.UUID(int=0),
+                tools_used=[],
+                pending_action=None,
+            )
+        else:
+            try:
+                result = await self.agent.run(session, context, conversation, inbound)
+            except Exception:
+                await session.rollback()
+                fresh_inbound = await session.get(ChannelMessage, inbound_id)
+                if fresh_inbound is not None:
+                    fresh_inbound.status = "failed"
+                    fresh_inbound.error_code = "conversation_agent_unavailable"
+                    await session.commit()
+                raise
 
         outbound = ChannelMessage(
             workspace_id=context.workspace_id,
@@ -239,7 +270,13 @@ class ConversationService:
             direction="outbound",
             content=result.answer,
             status="completed",
-            message_metadata={},
+            message_metadata={
+                "response_phase": (
+                    "acknowledgement"
+                    if result.orchestration_task is not None
+                    else "final"
+                )
+            },
         )
         session.add(outbound)
         inbound.status = "completed"
@@ -252,6 +289,11 @@ class ConversationService:
             answer=result.answer,
             tools_used=result.tools_used,
             pending_action=_pending_response(result.pending_action),
+            orchestration_task_id=(
+                result.orchestration_task.id
+                if result.orchestration_task is not None
+                else None
+            ),
             idempotent_replay=False,
         )
 
@@ -384,11 +426,17 @@ class ConversationService:
         if conversation is None or conversation.status != "active":
             raise NotFoundError("Conversa não encontrada.")
         outbound = await session.scalar(
-            select(ChannelMessage).where(ChannelMessage.reply_to_message_id == inbound.id)
+            select(ChannelMessage)
+            .where(ChannelMessage.reply_to_message_id == inbound.id)
+            .order_by(ChannelMessage.created_at)
+            .limit(1)
         )
         if outbound is not None:
             run = await session.scalar(
-                select(AgentRun).where(AgentRun.inbound_message_id == inbound.id)
+                select(AgentRun).where(
+                    AgentRun.inbound_message_id == inbound.id,
+                    AgentRun.run_type == "conversation",
+                )
             )
             pending = await session.scalar(
                 select(PendingAction)
@@ -404,12 +452,26 @@ class ConversationService:
                 run_id=run.id if run is not None else uuid.UUID(int=0),
                 tools_used=[],
                 pending_action=pending,
+                orchestration_task=await session.scalar(
+                    select(OrchestrationTask).where(
+                        OrchestrationTask.inbound_message_id == inbound.id
+                    )
+                ),
             )
         context = RequestContext(
             identity=Identity(user_id=conversation.user_id),
             workspace_id=conversation.workspace_id,
         )
-        result = await self.agent.run(session, context, conversation, inbound)
+        command = route_command(inbound.content)
+        if command is not None:
+            result = ConversationAgentResult(
+                answer=command.answer,
+                run_id=uuid.UUID(int=0),
+                tools_used=[],
+                pending_action=None,
+            )
+        else:
+            result = await self.agent.run(session, context, conversation, inbound)
         outbound = ChannelMessage(
             workspace_id=conversation.workspace_id,
             conversation_id=conversation.id,
@@ -418,7 +480,13 @@ class ConversationService:
             direction="outbound",
             content=result.answer,
             status="queued",
-            message_metadata={},
+            message_metadata={
+                "response_phase": (
+                    "acknowledgement"
+                    if result.orchestration_task is not None
+                    else "final"
+                )
+            },
         )
         session.add(outbound)
         await session.flush()
@@ -428,8 +496,7 @@ class ConversationService:
             account = await session.get(ChannelAccount, conversation.channel_account_id)
             if account is not None and account.provider == conversation.provider:
                 destination = account.external_account_id
-        session.add(
-            OutboxMessage(
+        outbox = OutboxMessage(
                 workspace_id=conversation.workspace_id,
                 conversation_id=conversation.id,
                 channel_message_id=outbound.id,
@@ -439,7 +506,10 @@ class ConversationService:
                 status="pending",
                 idempotency_key=f"reply:{inbound.id}",
             )
-        )
+        session.add(outbox)
+        await session.flush()
+        if result.orchestration_task is not None:
+            result.orchestration_task.ack_outbox_id = outbox.id
         inbound.status = "completed"
         inbound.locked_by = None
         inbound.lease_expires_at = None

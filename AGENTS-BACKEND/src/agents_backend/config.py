@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
@@ -21,11 +22,15 @@ class Settings(BaseSettings):
     supabase_anon_key: SecretStr = Field(alias="SUPABASE_ANON_KEY")
     supabase_service_role_key: SecretStr = Field(alias="SUPABASE_SERVICE_ROLE_KEY")
     database_url: SecretStr = Field(alias="DATABASE_URL")
+    database_pooler_url: SecretStr | None = Field(default=None, alias="DATABASE_POOLER_URL")
     openai_api_key: SecretStr = Field(alias="OPENAI_API_KEY")
     openai_model_extraction: str = Field(alias="OPENAI_MODEL_EXTRACTION")
     openai_model_answering: str = Field(alias="OPENAI_MODEL_ANSWERING")
     openai_model_conversation: str = Field(
         default="gpt-5.6-luna", alias="OPENAI_MODEL_CONVERSATION"
+    )
+    openai_model_orchestration: str = Field(
+        default="gpt-5.6-terra", alias="OPENAI_MODEL_ORCHESTRATION"
     )
     openai_reasoning_effort_extraction: Literal["none", "low", "medium", "high", "xhigh", "max"] = (
         Field(default="none", alias="OPENAI_REASONING_EFFORT_EXTRACTION")
@@ -36,6 +41,9 @@ class Settings(BaseSettings):
     openai_reasoning_effort_conversation: Literal[
         "none", "low", "medium", "high", "xhigh", "max"
     ] = Field(default="none", alias="OPENAI_REASONING_EFFORT_CONVERSATION")
+    openai_reasoning_effort_orchestration: Literal[
+        "none", "low", "medium", "high", "xhigh", "max"
+    ] = Field(default="medium", alias="OPENAI_REASONING_EFFORT_ORCHESTRATION")
     openai_model_embedding: str = Field(
         default="text-embedding-3-small", alias="OPENAI_MODEL_EMBEDDING"
     )
@@ -52,6 +60,18 @@ class Settings(BaseSettings):
     )
     conversation_max_output_tokens: int = Field(
         default=1200, alias="CONVERSATION_MAX_OUTPUT_TOKENS", ge=100, le=8000
+    )
+    orchestration_max_steps: int = Field(
+        default=8, alias="ORCHESTRATION_MAX_STEPS", ge=1, le=20
+    )
+    orchestration_max_tool_calls: int = Field(
+        default=10, alias="ORCHESTRATION_MAX_TOOL_CALLS", ge=1, le=40
+    )
+    orchestration_max_output_tokens: int = Field(
+        default=1800, alias="ORCHESTRATION_MAX_OUTPUT_TOKENS", ge=100, le=12000
+    )
+    orchestration_task_max_attempts: int = Field(
+        default=3, alias="ORCHESTRATION_TASK_MAX_ATTEMPTS", ge=1, le=10
     )
     pending_action_ttl_seconds: int = Field(
         default=600, alias="PENDING_ACTION_TTL_SECONDS", ge=60, le=3600
@@ -91,7 +111,14 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_url(self) -> str:
-        value = self.database_url.get_secret_value()
+        direct_url = make_url(self.database_url.get_secret_value())
+        if self.database_pooler_url is not None:
+            selected_url = make_url(self.database_pooler_url.get_secret_value())
+            if selected_url.password is None:
+                selected_url = selected_url.set(password=direct_url.password)
+        else:
+            selected_url = direct_url
+        value = selected_url.render_as_string(hide_password=False)
         if value.startswith("postgresql+asyncpg://"):
             return value
         if value.startswith("postgresql://"):

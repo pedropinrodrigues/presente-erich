@@ -5,18 +5,21 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Response
+from sqlalchemy import select
 
 from agents_backend.api.dependencies import (
     ContextDependency,
     ConversationServiceDependency,
     SessionDependency,
 )
+from agents_backend.errors import NotFoundError
 from agents_backend.ingestion.service import get_source, ingest_transcript
 from agents_backend.memory.mutations import (
     correct_memory,
     delete_memory_target,
     delete_source,
 )
+from agents_backend.models import OrchestrationTask
 from agents_backend.retrieval.service import ask_memory, get_entity_view, search_memory
 from agents_backend.schemas import (
     AgentTurnRequest,
@@ -27,6 +30,7 @@ from agents_backend.schemas import (
     EntityResponse,
     IngestTranscriptResponse,
     MutationResponse,
+    OrchestrationTaskResponse,
     SearchMemoryResponse,
     SourceResponse,
     TranscriptEvent,
@@ -60,6 +64,27 @@ async def post_transcript(
     result, status_code = await ingest_transcript(session, context, payload)
     response.status_code = status_code
     return result
+
+
+@router.get(
+    "/orchestration/tasks/{task_id}",
+    response_model=OrchestrationTaskResponse,
+)
+async def read_orchestration_task(
+    task_id: uuid.UUID,
+    session: SessionDependency,
+    context: ContextDependency,
+) -> OrchestrationTaskResponse:
+    task = await session.scalar(
+        select(OrchestrationTask).where(
+            OrchestrationTask.id == task_id,
+            OrchestrationTask.workspace_id == context.workspace_id,
+            OrchestrationTask.user_id == context.identity.user_id,
+        )
+    )
+    if task is None:
+        raise NotFoundError("Tarefa não encontrada.")
+    return OrchestrationTaskResponse.model_validate(task, from_attributes=True)
 
 
 @router.get("/sources/{source_id}", response_model=SourceResponse)

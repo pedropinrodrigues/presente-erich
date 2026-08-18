@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class TranscriptEvent(BaseModel):
@@ -191,6 +191,48 @@ class AgentToolUseResponse(BaseModel):
     idempotent_replay: bool = False
 
 
+class ConversationRouteDecision(BaseModel):
+    """Structured, auditable decision produced by the fast conversation model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    route: Literal["answer", "delegate", "clarify", "request_confirmation"]
+    understanding: str = Field(min_length=1, max_length=1000)
+    handoff_context: str = Field(min_length=1, max_length=5000)
+    orchestration_intent: Literal[
+        "memory_write",
+        "memory_correction",
+        "memory_deletion",
+        "automation",
+        "external_communication",
+        "account_management",
+        "invite_management",
+        "compound",
+    ] | None = None
+    user_message: str | None = Field(default=None, min_length=1, max_length=2000)
+    acknowledgement: str | None = Field(default=None, min_length=1, max_length=240)
+    confirmation_status: Literal["none", "explicit", "ambiguous", "cancellation"]
+    confidence: float = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_route_fields(self) -> ConversationRouteDecision:
+        if self.route == "delegate" and self.orchestration_intent is None:
+            raise ValueError("orchestration_intent é obrigatório para delegação")
+        if self.route != "delegate" and self.orchestration_intent is not None:
+            raise ValueError("orchestration_intent só pode ser usado em delegação")
+        if self.route in {"clarify", "request_confirmation"} and not self.user_message:
+            raise ValueError("user_message é obrigatório nesta rota")
+        if self.route in {"answer", "delegate"} and self.user_message is not None:
+            raise ValueError("user_message não pode ser usado nesta rota")
+        if self.route == "delegate" and self.acknowledgement is None:
+            raise ValueError("acknowledgement é obrigatório para delegação")
+        if self.route != "delegate" and self.acknowledgement is not None:
+            raise ValueError("acknowledgement só pode ser usado em delegação")
+        if self.route == "request_confirmation" and self.confirmation_status != "ambiguous":
+            raise ValueError("request_confirmation exige confirmação ambígua")
+        return self
+
+
 class PendingActionResponse(BaseModel):
     id: uuid.UUID
     summary: str
@@ -204,7 +246,20 @@ class AgentTurnResponse(BaseModel):
     answer: str
     tools_used: list[AgentToolUseResponse] = Field(default_factory=list)
     pending_action: PendingActionResponse | None = None
+    orchestration_task_id: uuid.UUID | None = None
     idempotent_replay: bool = False
+
+
+class OrchestrationTaskResponse(BaseModel):
+    id: uuid.UUID
+    intent: str
+    status: str
+    summary: str
+    routing_context: dict[str, Any]
+    result_code: str | None
+    error_code: str | None
+    created_at: datetime
+    completed_at: datetime | None
 
 
 class WhatsappAccountRequest(BaseModel):

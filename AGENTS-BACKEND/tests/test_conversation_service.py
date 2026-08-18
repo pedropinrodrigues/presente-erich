@@ -68,3 +68,23 @@ async def test_api_message_id_cannot_be_reused_with_other_content(
         )
 
     assert getattr(error.value, "code", None) == "message_id_conflict"
+
+
+@pytest.mark.asyncio
+async def test_help_command_bypasses_model(
+    session: AsyncSession, context: RequestContext
+) -> None:
+    agent = FakeAgent()
+    service = ConversationService(
+        settings=conversation_settings(),
+        agent=agent,  # type: ignore[arg-type]
+    )
+
+    response = await service.process_api_turn(
+        session,
+        context,
+        AgentTurnRequest(message_id="help-1", message="/ajuda"),
+    )
+
+    assert "consultar sua memória" in response.answer
+    assert agent.calls == 0

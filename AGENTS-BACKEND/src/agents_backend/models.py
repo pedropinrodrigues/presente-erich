@@ -62,6 +62,26 @@ class CommitmentStatus(StrEnum):
     DELETED = "deleted"
 
 
+class OrchestrationIntent(StrEnum):
+    MEMORY_WRITE = "memory_write"
+    MEMORY_CORRECTION = "memory_correction"
+    MEMORY_DELETION = "memory_deletion"
+    AUTOMATION = "automation"
+    EXTERNAL_COMMUNICATION = "external_communication"
+    ACCOUNT_MANAGEMENT = "account_management"
+    INVITE_MANAGEMENT = "invite_management"
+    COMPOUND = "compound"
+
+
+class OrchestrationTaskStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    WAITING_CONFIRMATION = "waiting_confirmation"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class Workspace(Base):
     __tablename__ = "workspaces"
 
@@ -425,8 +445,11 @@ class ChannelMessage(Base):
 class AgentRun(Base):
     __tablename__ = "agent_runs"
     __table_args__ = (
-        UniqueConstraint("inbound_message_id", name="uq_agent_run_inbound_message"),
+        UniqueConstraint(
+            "run_type", "inbound_message_id", name="uq_agent_run_type_inbound_message"
+        ),
         Index("ix_agent_runs_conversation", "conversation_id", "created_at"),
+        Index("ix_agent_runs_orchestration_task", "orchestration_task_id", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -439,6 +462,12 @@ class AgentRun(Base):
     inbound_message_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("channel_messages.id", ondelete="CASCADE"), nullable=False
     )
+    orchestration_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration_tasks.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    run_type: Mapped[str] = mapped_column(String(30), default="conversation", nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     prompt_version: Mapped[str] = mapped_column(String(50), nullable=False)
     provider_response_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -472,6 +501,11 @@ class ToolExecution(Base):
     )
     agent_run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    orchestration_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration_tasks.id", ondelete="CASCADE"),
+        nullable=True,
     )
     call_id: Mapped[str] = mapped_column(String(200), nullable=False)
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -507,6 +541,11 @@ class PendingAction(Base):
     created_by_message_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("channel_messages.id", ondelete="CASCADE"), nullable=False
     )
+    orchestration_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
     tool_version: Mapped[str] = mapped_column(String(30), nullable=False)
     arguments: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -539,6 +578,11 @@ class OutboxMessage(Base):
     channel_message_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("channel_messages.id", ondelete="SET NULL"), nullable=True
     )
+    depends_on_outbox_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("outbox_messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     destination: Mapped[str] = mapped_column(String(200), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -559,3 +603,83 @@ class OutboxMessage(Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OrchestrationTask(Base):
+    __tablename__ = "orchestration_tasks"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "idempotency_key", name="uq_orchestration_task_workspace_key"
+        ),
+        UniqueConstraint("inbound_message_id", name="uq_orchestration_task_inbound_message"),
+        Index("ix_orchestration_tasks_claim", "status", "available_at", "created_at"),
+        Index("ix_orchestration_tasks_conversation", "conversation_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    inbound_message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channel_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    intent: Mapped[str] = mapped_column(String(50), nullable=False)
+    request_text: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(String(1000), nullable=False)
+    routing_context: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    allowed_capabilities: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(30), default=OrchestrationTaskStatus.QUEUED.value, nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    locked_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ack_outbox_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("outbox_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    result_outbox_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("outbox_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    result_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class OrchestrationTaskEvent(Base):
+    __tablename__ = "orchestration_task_events"
+    __table_args__ = (
+        Index("ix_orchestration_task_events_task", "orchestration_task_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    orchestration_task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration_tasks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    event_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )

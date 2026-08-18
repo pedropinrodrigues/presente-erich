@@ -23,8 +23,10 @@ from agents_backend.models import (
     ChannelMessage,
     Conversation,
     Fact,
+    OrchestrationTask,
     PendingAction,
 )
+from agents_backend.schemas import ConversationRouteDecision
 
 
 def conversation_settings(**overrides: str) -> Settings:
@@ -203,7 +205,7 @@ async def test_delete_requires_a_new_explicit_confirmation_turn(
         provider="api",
         external_message_id=f"test:{uuid.uuid4()}",
         direction="inbound",
-        content="Confirmo",
+        content="Está certo, é exatamente isso que eu quero.",
         status="processing",
         message_metadata={},
     )
@@ -218,6 +220,20 @@ async def test_delete_requires_a_new_explicit_confirmation_turn(
         status="running",
     )
     session.add(second_run)
+    confirmation_task = OrchestrationTask(
+        workspace_id=context.workspace_id,
+        user_id=context.identity.user_id,
+        conversation_id=conversation.id,
+        inbound_message_id=second_message.id,
+        intent="memory_deletion",
+        request_text=second_message.content,
+        summary="O usuário confirmou claramente a exclusão pendente.",
+        routing_context={"confirmation_status": "explicit"},
+        allowed_capabilities=["memory_read", "memory_deletion"],
+        status="running",
+        idempotency_key=f"test-confirm:{second_message.id}",
+    )
+    session.add(confirmation_task)
     await session.commit()
     confirmed = await registry.execute(
         session=session,
@@ -229,6 +245,7 @@ async def test_delete_requires_a_new_explicit_confirmation_turn(
         tool_name="confirm_action",
         raw_arguments=json.dumps({"action_id": None}),
         settings=conversation_settings(),
+        orchestration_task=confirmation_task,
     )
 
     await session.refresh(fact)
@@ -286,6 +303,20 @@ class ScriptedGateway:
                 usage=SimpleNamespace(input_tokens=14, output_tokens=8),
             ),
         ]
+
+    async def route_conversation(self, **_: Any) -> Any:
+        return SimpleNamespace(
+            value=ConversationRouteDecision(
+                route="answer",
+                understanding="O usuário quer consultar compromissos pendentes.",
+                handoff_context="Consulta de leitura sobre compromissos em aberto.",
+                confirmation_status="none",
+                confidence=0.98,
+            ),
+            provider_request_id="routing-response",
+            input_tokens=8,
+            output_tokens=4,
+        )
 
     async def conversation_response(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)

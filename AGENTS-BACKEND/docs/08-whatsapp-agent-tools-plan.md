@@ -7,6 +7,10 @@ Telegram estão implementadas. O vínculo usa deep link temporário, a Supabase 
 a entrada e o worker processa turnos e outbox. O adaptador Meta WhatsApp foi preservado, mas está
 inativo por configuração durante o piloto.
 
+O catálogo originalmente único foi posteriormente separado: o agente rápido mantém apenas leitura
+e delegação, enquanto mutações são processadas pelo orquestrador persistido descrito em
+[09-orchestrated-agent-architecture.md](09-orchestrated-agent-architecture.md).
+
 ## Decisão de produto
 
 O Telegram é a interface principal do piloto. O usuário não precisa conhecer rotas, IDs internos ou a
