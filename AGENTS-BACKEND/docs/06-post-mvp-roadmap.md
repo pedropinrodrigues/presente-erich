@@ -10,6 +10,8 @@ Não adicionar automação antes de a memória provar utilidade: recuperação c
 | --- | --- | --- | --- |
 | Interface conversacional | Implementada | Runtime de agente, tools da memória, confirmações e endpoint de teste independente de canal. | Piloto controlado e observabilidade. |
 | Canal Telegram | Gateway publicado | Bot, Edge Function, segredo, webhook idempotente, deep link, worker e outbox. | Executar e observar o piloto real. |
+| Agentes em duas camadas | Especificado | Agente rápido de consulta, tarefas persistidas e orquestrador de ações. | Implementar [o guia de orquestração](09-orchestrated-agent-architecture.md). |
+| Convites pelo Telegram | Especificado | Conta interna, workspace pessoal, convite compartilhável e aceite atômico. | Implementar após a orquestração, seguindo [o guia de convites](10-telegram-invites-and-accounts.md). |
 | Canal WhatsApp | Adaptador preservado | Cloud API, assinatura HMAC, vínculo e normalização implementados. | Ativar quando houver número empresarial brasileiro. |
 | Assistente executivo | Planejado | Calendário, briefings e acompanhamento de pendências. | Qualidade confiável de memória e retrieval. |
 | Ações assistidas | Planejado | Rascunhos, aprovações e integrações somente de baixo risco. | Políticas de autorização e auditoria maduras. |

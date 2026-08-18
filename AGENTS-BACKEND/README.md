@@ -118,3 +118,7 @@ provedor ativo quando `MESSAGING_PROVIDER=telegram`.
 - `docs/05-quality-and-evaluation.md`: métricas e gates.
 - `docs/08-whatsapp-agent-tools-plan.md`: implementação do agente, tools, confirmações, canais de
   mensagem e pendências restantes para o piloto.
+- `docs/09-orchestrated-agent-architecture.md`: separação entre agente rápido de consulta e
+  orquestrador assíncrono de tarefas.
+- `docs/10-telegram-invites-and-accounts.md`: fluxo de convites, criação de contas independentes e
+  isolamento de workspaces pelo Telegram.

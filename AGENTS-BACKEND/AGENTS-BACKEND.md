@@ -70,6 +70,8 @@ externas, múltiplos agentes autônomos e loops agênticos abertos.
 - [Seleção de modelos e custo](docs/07-model-selection-and-cost.md)
 - [Evolução após o MVP](docs/06-post-mvp-roadmap.md)
 - [Agente conversacional e tools](docs/08-whatsapp-agent-tools-plan.md)
+- [Agente rápido e orquestrador de tarefas](docs/09-orchestrated-agent-architecture.md)
+- [Convites e contas pelo Telegram](docs/10-telegram-invites-and-accounts.md)
 
 ## Critérios de aceite
 
