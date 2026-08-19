@@ -237,7 +237,13 @@ async def search_memory(
     combined.sort(key=lambda pair: (pair[1].created_at, pair[1].id), reverse=True)
     page = combined[:limit]
     evidence = await _evidence_map(
-        session, context.workspace_id, [(kind, row.id) for kind, row in page]
+        session,
+        context.workspace_id,
+        [
+            (kind, row.id)
+            for kind, row in page
+            if kind in {"fact", "commitment"}
+        ],
     )
     for kind, row in page:
         if kind == "entity":
