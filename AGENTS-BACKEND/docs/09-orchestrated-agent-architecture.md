@@ -345,6 +345,19 @@ O histórico mantém por padrão 12 mensagens relevantes e ignora acknowledgemen
 worker consulta novas tarefas a cada 0,5 segundo por padrão. Ambos podem ser ajustados por
 `CONVERSATION_HISTORY_MESSAGES` e `WORKER_POLL_INTERVAL_SECONDS`.
 
+### Perfil contextual do usuário
+
+Antes do roteamento, o backend constrói uma visão compacta e determinística da wiki do workspace:
+entidades ativas, fatos com estado `current` e compromissos `open`. Esse perfil não é uma nova base
+de dados nem uma fonte de verdade; itens apagados, contestados, superados ou concluídos ficam fora.
+Ele é limitado por `PROFILE_CONTEXT_MAX_CHARACTERS` (2.400 por padrão) e
+`PROFILE_CONTEXT_MAX_ITEMS` (8 por categoria), para auxiliar o Luna a interpretar referências como
+“a tarefa dela” e formular uma busca melhor sem aumentar o contexto sem controle.
+
+O perfil é enviado ao roteador como dado não confiável. O prompt proíbe responder fatos apenas com
+ele: uma pergunta sobre a wiki ainda deve usar a operação de leitura adequada. A visão pode ser
+inspecionada por `GET /v1/profile`, autenticada no workspace do usuário.
+
 ## Alterações esperadas no código
 
 | Componente | Alteração |

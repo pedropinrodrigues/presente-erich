@@ -95,6 +95,22 @@ class SearchMemoryResponse(BaseModel):
     total: int | None = None
 
 
+class ContextProfileItem(BaseModel):
+    label: str
+    detail: str
+    updated_at: datetime
+
+
+class UserContextProfileResponse(BaseModel):
+    """Bounded derived context, never a substitute for factual memory retrieval."""
+
+    summary: str
+    entities: list[ContextProfileItem] = Field(default_factory=list)
+    current_facts: list[ContextProfileItem] = Field(default_factory=list)
+    open_commitments: list[ContextProfileItem] = Field(default_factory=list)
+    updated_at: datetime | None = None
+
+
 class EntityResponse(BaseModel):
     id: uuid.UUID
     type: str

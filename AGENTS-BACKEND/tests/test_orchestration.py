@@ -127,6 +127,9 @@ async def test_luna_structured_delegation_persists_context_before_acknowledgemen
     )
     assert "primeiro pedido" in task.routing_context["handoff_context"]
     assert [tool.name for tool in result.tools_used] == ["delegate_to_orchestrator"]
+    routing_context = gateway.routing_calls[0]["input_items"][0]["content"]
+    assert '"user_profile"' in routing_context
+    assert "Perfil contextual derivado da wiki" in routing_context
 
 
 @pytest.mark.asyncio

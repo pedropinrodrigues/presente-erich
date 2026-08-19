@@ -20,6 +20,7 @@ from agents_backend.memory.mutations import (
     delete_source,
 )
 from agents_backend.models import OrchestrationTask
+from agents_backend.profile.service import get_user_context_profile
 from agents_backend.retrieval.service import ask_memory, get_entity_view, search_memory
 from agents_backend.schemas import (
     AgentTurnRequest,
@@ -34,6 +35,7 @@ from agents_backend.schemas import (
     SearchMemoryResponse,
     SourceResponse,
     TranscriptEvent,
+    UserContextProfileResponse,
 )
 
 router = APIRouter(prefix="/v1")
@@ -47,6 +49,14 @@ async def post_agent_turn(
     conversation_service: ConversationServiceDependency,
 ) -> AgentTurnResponse:
     return await conversation_service.process_api_turn(session, context, payload)
+
+
+@router.get("/profile", response_model=UserContextProfileResponse)
+async def read_user_context_profile(
+    session: SessionDependency,
+    context: ContextDependency,
+) -> UserContextProfileResponse:
+    return await get_user_context_profile(session, context)
 
 
 @router.post(

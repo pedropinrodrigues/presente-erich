@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     conversation_history_messages: int = Field(
         default=12, alias="CONVERSATION_HISTORY_MESSAGES", ge=2, le=100
     )
+    profile_context_max_characters: int = Field(
+        default=2400, alias="PROFILE_CONTEXT_MAX_CHARACTERS", ge=400, le=8000
+    )
+    profile_context_max_items: int = Field(
+        default=8, alias="PROFILE_CONTEXT_MAX_ITEMS", ge=1, le=30
+    )
     conversation_max_steps: int = Field(default=6, alias="CONVERSATION_MAX_STEPS", ge=1, le=12)
     conversation_max_tool_calls: int = Field(
         default=6, alias="CONVERSATION_MAX_TOOL_CALLS", ge=1, le=20
