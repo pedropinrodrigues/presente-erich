@@ -89,3 +89,40 @@ async def test_search_does_not_leak_deleted_fact_through_entity_evidence(
 
     assert [item.type for item in result.items] == ["entity"]
     assert result.items[0].evidence == []
+
+
+@pytest.mark.asyncio
+async def test_search_uses_textual_match_before_semantic_embedding(
+    session: AsyncSession, context: RequestContext
+) -> None:
+    fact = Fact(
+        workspace_id=context.workspace_id,
+        fact_type="decision",
+        predicate="prioritized_project",
+        value={"value": "A wiki é a prioridade atual."},
+        value_text="A wiki é a prioridade atual.",
+        fingerprint="a" * 64,
+        status="current",
+        confidence=1.0,
+    )
+    session.add(fact)
+    await session.commit()
+
+    class EmbeddingMustNotRun:
+        async def embed(self, _: str) -> list[float]:
+            raise AssertionError("A busca semântica não deve rodar quando a textual encontrou fato")
+
+    result = await search_memory(
+        session,
+        context,
+        query="O que temos sobre a wiki?",
+        entity_id=None,
+        item_type="fact",
+        status=None,
+        from_=None,
+        to=None,
+        cursor=None,
+        gateway=EmbeddingMustNotRun(),  # type: ignore[arg-type]
+    )
+
+    assert [item.content for item in result.items] == ["A wiki é a prioridade atual."]

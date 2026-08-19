@@ -24,6 +24,20 @@ from agents_backend.schemas import (
 
 logger = logging.getLogger(__name__)
 
+_SEARCH_STOP_WORDS = {
+    "a", "ao", "aos", "as", "com", "da", "das", "de", "do", "dos", "e", "em", "na",
+    "nas", "no", "nos", "o", "os", "para", "por", "que", "sobre", "tem", "temos", "uma",
+    "umas", "um", "uns", "vai", "qual", "quais", "como", "esta", "estao",
+}
+
+
+def _search_terms(query: str) -> list[str]:
+    return [
+        term
+        for term in re.findall(r"[\\wÀ-ÿ]+", query.casefold())
+        if len(term) >= 3 and term not in _SEARCH_STOP_WORDS
+    ][:8]
+
 
 def _encode_cursor(created_at: datetime, item_id: uuid.UUID) -> str:
     value = f"{created_at.isoformat()}|{item_id}"
@@ -102,15 +116,16 @@ async def search_memory(
     entity_rows: list[Entity] = []
     fact_rows: list[Fact] = []
     commitment_rows: list[Commitment] = []
+    terms = _search_terms(query) if query else []
 
     if item_type in (None, "entity"):
         entity_statement = select(Entity).where(
             Entity.workspace_id == context.workspace_id,
             Entity.status == "active",
         )
-        if query:
+        if terms:
             entity_statement = entity_statement.where(
-                Entity.canonical_name.ilike(f"%{query.strip()}%")
+                or_(*[Entity.canonical_name.ilike(f"%{term}%") for term in terms])
             )
         if entity_id:
             entity_statement = entity_statement.where(Entity.id == entity_id)
@@ -138,8 +153,10 @@ async def search_memory(
             Fact.workspace_id == context.workspace_id,
             Fact.status != FactStatus.DELETED.value,
         )
-        if query:
-            fact_statement = fact_statement.where(Fact.value_text.ilike(f"%{query.strip()}%"))
+        if terms:
+            fact_statement = fact_statement.where(
+                or_(*[Fact.value_text.ilike(f"%{term}%") for term in terms])
+            )
         if entity_id:
             fact_statement = fact_statement.where(Fact.subject_entity_id == entity_id)
         if status:
@@ -156,7 +173,7 @@ async def search_memory(
                 )
             ).all()
         )
-        if query:
+        if query and not fact_rows and item_type in (None, "fact"):
             try:
                 query_embedding = await (gateway or ModelGateway()).embed(query.strip())
                 semantic_statement = select(Fact).where(
@@ -193,9 +210,9 @@ async def search_memory(
             Commitment.workspace_id == context.workspace_id,
             Commitment.status != "deleted",
         )
-        if query:
+        if terms:
             commitment_statement = commitment_statement.where(
-                Commitment.description.ilike(f"%{query.strip()}%")
+                or_(*[Commitment.description.ilike(f"%{term}%") for term in terms])
             )
         if entity_id:
             commitment_statement = commitment_statement.where(

@@ -235,12 +235,11 @@ class ModelGateway:
         stop=stop_after_attempt(2),
         reraise=True,
     )
-    async def conversation_response(
+    async def conversation_answer(
         self,
         *,
         instructions: str,
         input_items: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
         safety_identifier: str,
     ) -> Any:
         return await self.client.responses.create(
@@ -249,9 +248,6 @@ class ModelGateway:
             store=False,
             instructions=instructions,
             input=input_items,
-            tools=tools,
-            tool_choice="auto",
-            parallel_tool_calls=False,
             max_output_tokens=self.settings.conversation_max_output_tokens,
             safety_identifier=safety_identifier,
         )
@@ -288,8 +284,8 @@ class ModelGateway:
             value=parsed,
             provider_request_id=getattr(response, "id", None),
             model=self.settings.openai_model_conversation,
-            prompt_version="conversation-router-2026-08-18-v3",
-            schema_version="conversation-route-v2",
+            prompt_version="conversation-router-2026-08-19-v4",
+            schema_version="conversation-route-v3",
             duration_ms=int((time.monotonic() - started) * 1000),
             input_tokens=getattr(usage, "input_tokens", None),
             output_tokens=getattr(usage, "output_tokens", None),

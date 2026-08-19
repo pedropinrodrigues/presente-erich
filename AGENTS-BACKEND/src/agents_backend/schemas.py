@@ -211,6 +211,14 @@ class ConversationRouteDecision(BaseModel):
     ] | None = None
     user_message: str | None = Field(default=None, min_length=1, max_length=2000)
     acknowledgement: str | None = Field(default=None, min_length=1, max_length=240)
+    answer_message: str | None = Field(default=None, min_length=1, max_length=2000)
+    read_operation: Literal[
+        "search_memory", "list_open_commitments", "get_pending_action"
+    ] | None = None
+    read_query: str | None = Field(default=None, max_length=1000)
+    read_item_type: Literal["entity", "fact", "commitment"] | None = None
+    read_status: str | None = Field(default=None, max_length=100)
+    read_limit: int | None = Field(default=None, ge=1, le=20)
     confirmation_status: Literal["none", "explicit", "ambiguous", "cancellation"]
     confidence: float = Field(ge=0, le=1)
 
@@ -228,6 +236,25 @@ class ConversationRouteDecision(BaseModel):
             raise ValueError("acknowledgement é obrigatório para delegação")
         if self.route != "delegate" and self.acknowledgement is not None:
             raise ValueError("acknowledgement só pode ser usado em delegação")
+        has_read = self.read_operation is not None
+        read_fields_present = any(
+            value is not None
+            for value in (self.read_query, self.read_item_type, self.read_status, self.read_limit)
+        )
+        if self.route != "answer" and (
+            self.answer_message is not None or has_read or read_fields_present
+        ):
+            raise ValueError("resposta ou leitura só pode ser usada na rota answer")
+        if self.route == "answer" and has_read == (self.answer_message is not None):
+            raise ValueError("answer exige uma resposta direta ou uma única operação de leitura")
+        if not has_read and read_fields_present:
+            raise ValueError("parâmetros de leitura exigem uma operação de leitura")
+        if self.read_operation == "search_memory" and not self.read_query:
+            raise ValueError("search_memory exige read_query")
+        if self.read_operation != "search_memory" and (
+            self.read_item_type is not None or self.read_status is not None
+        ):
+            raise ValueError("filtros de item só são válidos para search_memory")
         if self.route == "request_confirmation" and self.confirmation_status != "ambiguous":
             raise ValueError("request_confirmation exige confirmação ambígua")
         return self

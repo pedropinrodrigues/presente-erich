@@ -48,11 +48,11 @@ class Settings(BaseSettings):
         default="text-embedding-3-small", alias="OPENAI_MODEL_EMBEDDING"
     )
     worker_poll_interval_seconds: float = Field(
-        default=2.0, alias="WORKER_POLL_INTERVAL_SECONDS", ge=0.1
+        default=0.5, alias="WORKER_POLL_INTERVAL_SECONDS", ge=0.1
     )
     worker_max_attempts: int = Field(default=3, alias="WORKER_MAX_ATTEMPTS", ge=1, le=10)
     conversation_history_messages: int = Field(
-        default=20, alias="CONVERSATION_HISTORY_MESSAGES", ge=2, le=100
+        default=12, alias="CONVERSATION_HISTORY_MESSAGES", ge=2, le=100
     )
     conversation_max_steps: int = Field(default=6, alias="CONVERSATION_MAX_STEPS", ge=1, le=12)
     conversation_max_tool_calls: int = Field(

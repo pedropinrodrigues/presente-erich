@@ -329,6 +329,22 @@ O modelo de conversa prioriza latência e decisão responder/delegar. O modelo d
 ser mais capaz, pois é chamado apenas em tarefas de ação. Cada `agent_run` deve guardar tipo
 (`conversation` ou `orchestration`), modelo, prompt, duração, tokens, task ID e resultado.
 
+### Caminho rápido de leitura e orçamento de contexto
+
+O contrato estruturado do Luna também carrega a decisão de leitura rápida. Para uma conversa comum,
+ele devolve a própria resposta (`answer_message`) e o backend não faz uma segunda chamada ao
+modelo. Para uma consulta à memória, ele escolhe uma operação limitada (`search_memory`,
+`list_open_commitments` ou `get_pending_action`) e seus filtros; o backend valida e executa essa
+operação antes de uma única chamada final de redação. Assim, consultas deixam de fazer uma chamada
+intermediária só para o modelo selecionar uma tool.
+
+A busca começa por termos textuais. O embedding é um fallback apenas quando a busca textual de
+fatos não encontra resultado, evitando uma chamada externa em consultas já atendidas pelo banco.
+
+O histórico mantém por padrão 12 mensagens relevantes e ignora acknowledgements de delegação. O
+worker consulta novas tarefas a cada 0,5 segundo por padrão. Ambos podem ser ajustados por
+`CONVERSATION_HISTORY_MESSAGES` e `WORKER_POLL_INTERVAL_SECONDS`.
+
 ## Alterações esperadas no código
 
 | Componente | Alteração |

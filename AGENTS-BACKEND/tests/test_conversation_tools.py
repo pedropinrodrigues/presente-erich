@@ -277,32 +277,6 @@ class FakeFunctionCall:
 class ScriptedGateway:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
-        self.responses = [
-            SimpleNamespace(
-                id="response-tools",
-                output=[
-                    FakeFunctionCall(
-                        "call-list",
-                        "list_open_commitments",
-                        json.dumps(
-                            {
-                                "query": None,
-                                "responsible_entity_id": None,
-                                "limit": 10,
-                            }
-                        ),
-                    )
-                ],
-                output_text="",
-                usage=SimpleNamespace(input_tokens=10, output_tokens=4),
-            ),
-            SimpleNamespace(
-                id="response-final",
-                output=[],
-                output_text="Você não tem compromissos abertos.",
-                usage=SimpleNamespace(input_tokens=14, output_tokens=8),
-            ),
-        ]
 
     async def route_conversation(self, **_: Any) -> Any:
         return SimpleNamespace(
@@ -310,6 +284,8 @@ class ScriptedGateway:
                 route="answer",
                 understanding="O usuário quer consultar compromissos pendentes.",
                 handoff_context="Consulta de leitura sobre compromissos em aberto.",
+                read_operation="list_open_commitments",
+                read_limit=10,
                 confirmation_status="none",
                 confidence=0.98,
             ),
@@ -318,9 +294,13 @@ class ScriptedGateway:
             output_tokens=4,
         )
 
-    async def conversation_response(self, **kwargs: Any) -> Any:
+    async def conversation_answer(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)
-        return self.responses.pop(0)
+        return SimpleNamespace(
+            id="response-final",
+            output_text="Você não tem compromissos abertos.",
+            usage=SimpleNamespace(input_tokens=14, output_tokens=8),
+        )
 
 
 @pytest.mark.asyncio
@@ -358,9 +338,97 @@ async def test_runtime_returns_tool_output_with_matching_call_id(
     assert replay.answer == result.answer
     assert replay.tools_used[0].idempotent_replay is True
     assert [tool.name for tool in result.tools_used] == ["list_open_commitments"]
-    second_input = gateway.calls[1]["input_items"]
-    tool_outputs = [item for item in second_input if item.get("type") == "function_call_output"]
-    assert tool_outputs[0]["call_id"] == "call-list"
-    assert json.loads(tool_outputs[0]["output"])["code"] == "open_commitments_found"
+    read_results = [
+        item for item in gateway.calls[0]["input_items"] if "MEMORY_READ_RESULT" in item["content"]
+    ]
+    assert json.loads(read_results[0]["content"].split("\n", 1)[1].rsplit("\n", 1)[0])["code"] == (
+        "open_commitments_found"
+    )
     assert gateway.calls[0]["safety_identifier"] != str(context.identity.user_id)
-    assert len(gateway.calls) == 2
+    assert len(gateway.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_sends_direct_answer_from_router_without_second_model_call(
+    session: AsyncSession, context: RequestContext
+) -> None:
+    conversation, inbound, _ = await conversation_records(session, context, content="Olá!")
+
+    class DirectAnswerGateway:
+        async def route_conversation(self, **_: Any) -> Any:
+            return SimpleNamespace(
+                value=ConversationRouteDecision(
+                    route="answer",
+                    understanding="O usuário cumprimentou o assistente.",
+                    handoff_context="Conversa comum sem consulta à memória.",
+                    answer_message="Olá! Como posso ajudar?",
+                    confirmation_status="none",
+                    confidence=0.99,
+                ),
+                provider_request_id="routing-response",
+                input_tokens=8,
+                output_tokens=4,
+            )
+
+        async def conversation_answer(self, **_: Any) -> Any:
+            raise AssertionError("Uma resposta direta não deve chamar o modelo novamente")
+
+    result = await ConversationAgent(
+        settings=conversation_settings(), gateway=DirectAnswerGateway()
+    ).run(session, context, conversation, inbound)
+
+    assert result.answer == "Olá! Como posso ajudar?"
+    run = await session.scalar(select(AgentRun).where(AgentRun.inbound_message_id == inbound.id))
+    assert run is not None and run.steps == 1 and run.tool_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_history_excludes_delegation_acknowledgements(
+    session: AsyncSession, context: RequestContext
+) -> None:
+    conversation = Conversation(
+        workspace_id=context.workspace_id,
+        user_id=context.identity.user_id,
+        provider="api",
+        status="active",
+        conversation_metadata={},
+    )
+    session.add(conversation)
+    await session.flush()
+    first = ChannelMessage(
+        workspace_id=context.workspace_id,
+        conversation_id=conversation.id,
+        provider="api",
+        external_message_id="history-first",
+        direction="inbound",
+        content="Primeira pergunta",
+        status="completed",
+        message_metadata={},
+    )
+    acknowledgement = ChannelMessage(
+        workspace_id=context.workspace_id,
+        conversation_id=conversation.id,
+        provider="api",
+        direction="outbound",
+        content="Vou verificar e retorno.",
+        status="completed",
+        message_metadata={"response_phase": "acknowledgement"},
+    )
+    current = ChannelMessage(
+        workspace_id=context.workspace_id,
+        conversation_id=conversation.id,
+        provider="api",
+        external_message_id="history-current",
+        direction="inbound",
+        content="Segunda pergunta",
+        status="processing",
+        message_metadata={},
+    )
+    session.add_all([first, acknowledgement, current])
+    await session.commit()
+
+    history = await ConversationAgent(settings=conversation_settings())._history(
+        session, conversation.id, current.id
+    )
+
+    assert [item["content"] for item in history] == ["Primeira pergunta", "Segunda pergunta"]
