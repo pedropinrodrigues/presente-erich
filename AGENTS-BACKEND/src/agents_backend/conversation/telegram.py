@@ -18,6 +18,7 @@ from agents_backend.errors import AppError
 from agents_backend.models import ChannelAccount
 from agents_backend.schemas import TelegramAccountRequest, TelegramAccountResponse
 
+from .formatting import telegram_plain_text
 from .providers import TELEGRAM_PROVIDER
 from .service import ConversationService
 
@@ -252,7 +253,7 @@ class TelegramClient:
                 "O bot do Telegram ainda não foi configurado.",
                 503,
             )
-        chunks = telegram_text_chunks(text)
+        chunks = telegram_text_chunks(telegram_plain_text(text))
         if not chunks:
             raise RuntimeError("Mensagem de saída vazia")
         url = f"{self.settings.telegram_api_base_url.rstrip('/')}/bot{token}/sendMessage"

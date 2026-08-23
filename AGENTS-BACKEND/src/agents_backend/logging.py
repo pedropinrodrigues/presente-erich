@@ -30,3 +30,6 @@ def configure_logging(level: str) -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level.upper())
+    # INFO request logs may contain Telegram tokens in URL paths and hosted MCP credentials.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)

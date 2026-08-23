@@ -115,6 +115,37 @@ Somente chats privados em texto estão habilitados. Um chat não acessa nenhum w
 prova de posse pelo deep link. O adaptador Meta WhatsApp permanece no repositório, mas não é o
 provedor ativo quando `MESSAGING_PROVIDER=telegram`.
 
+## Conectar Gmail, Google Calendar e WhatsApp Business
+
+Com `COMPOSIO_ENABLED=true` e as credenciais Composio preenchidas, o usuário pode pedir no próprio
+Telegram: “conecte meu Gmail”, “conecte meu Google Calendar” ou “conecte meu WhatsApp Business”. O
+orquestrador devolve um link privado; a conta fica vinculada somente ao usuário e workspace que
+originaram o pedido.
+
+Gmail e Google Calendar aceitam múltiplas contas por usuário. Exemplos no Telegram: “adicione outra
+conta Gmail e chame de Trabalho”, “liste minhas contas conectadas”, “use a conta Pessoal como
+padrão” e “resuma os emails de todas as contas”. Leituras sem conta específica agregam todas as
+conexões ativas; rascunhos, envios e alterações usam a conta padrão, salvo quando o usuário indicar
+outra conta explicitamente. Cada conexão tem `account_id`, apelido e marcador de conta padrão.
+
+Leituras e consultas são R0, rascunhos de email são R1 e qualquer envio ou alteração externa é R2.
+Uma ação R2 fica pendente e só é executada depois de uma confirmação explícita em nova mensagem.
+O modelo nunca recebe API keys ou tokens OAuth: o backend chama uma sessão MCP limitada às tools da
+intenção, e o Composio guarda as credenciais da conta.
+
+Para testar e publicar o callback OAuth:
+
+```bash
+make test-composio-edge
+make deploy-composio-edge
+```
+
+O callback configurado no Composio deve ser:
+
+```text
+https://onuxlluzwlnkhbsfiind.supabase.co/functions/v1/composio-callback
+```
+
 ## Documentação
 
 - `AGENTS-BACKEND.md`: escopo e critérios do MVP já implementado.
@@ -127,3 +158,5 @@ provedor ativo quando `MESSAGING_PROVIDER=telegram`.
   orquestrador assíncrono de tarefas.
 - `docs/10-telegram-invites-and-accounts.md`: fluxo de convites, criação de contas independentes e
   isolamento de workspaces pelo Telegram.
+- `docs/11-composio-mcp-gateway-integration-plan.md`: plano para integrar produtos externos via
+  Composio MCP sem contornar as políticas, confirmações e auditoria do orquestrador.

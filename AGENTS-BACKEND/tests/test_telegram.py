@@ -16,6 +16,7 @@ from agents_backend.conversation.telegram import (
     bind_telegram_account,
     ingest_telegram_update,
     parse_telegram_update,
+    telegram_plain_text,
     telegram_text_chunks,
     verify_telegram_webhook_secret,
 )
@@ -50,6 +51,24 @@ def test_telegram_secret_parser_and_chunks() -> None:
     assert parsed[0].external_message_id == "123456789:1"
     assert parsed[0].text == "Olá"
     assert telegram_text_chunks("a" * 8001) == ["a" * 4000, "a" * 4000, "a"]
+
+
+def test_telegram_markdown_is_rendered_as_organized_plain_text() -> None:
+    source = """# Resumo
+
+- **Google** — `Alerta de segurança`
+- [Abrir mensagem](https://example.com/email)
+
+---
+
+**Prioridade:** alta"""
+
+    assert telegram_plain_text(source) == (
+        "Resumo\n\n"
+        "• Google — Alerta de segurança\n"
+        "• Abrir mensagem: https://example.com/email\n\n"
+        "Prioridade: alta"
+    )
 
 
 @pytest.mark.asyncio
@@ -98,12 +117,14 @@ async def test_telegram_binding_and_ingestion_are_idempotent(
 async def test_telegram_client_sends_message() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/botbot-token/sendMessage")
+        assert b"**" not in request.content
+        assert "• Google" in request.content.decode()
         return httpx.Response(200, json={"ok": True, "result": {"message_id": 42}})
 
     settings = conversation_settings(TELEGRAM_BOT_TOKEN="bot-token")  # noqa: S106
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         message_id = await TelegramClient(settings, client).send_text(
             destination="123456789",
-            text="Resposta",
+            text="- **Google**",
         )
     assert message_id == "123456789:42"

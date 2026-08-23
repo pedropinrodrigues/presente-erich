@@ -53,18 +53,14 @@ async def worker_loop() -> None:
         try:
             processed = False
             async with get_session_factory()() as session:
-                channel_message = await claim_channel_message(
-                    session, worker_id, active_providers
-                )
+                channel_message = await claim_channel_message(session, worker_id, active_providers)
                 if channel_message is not None:
                     await process_channel_message_job(
                         session, channel_message, conversation_service
                     )
                     processed = True
             async with get_session_factory()() as session:
-                outbox_message = await claim_outbox_message(
-                    session, worker_id, active_providers
-                )
+                outbox_message = await claim_outbox_message(session, worker_id, active_providers)
                 if outbox_message is not None:
                     await process_outbox_message(session, outbox_message, clients)
                     processed = True

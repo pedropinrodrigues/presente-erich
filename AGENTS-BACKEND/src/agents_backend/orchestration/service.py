@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agents_backend.conversation.formatting import format_channel_text
 from agents_backend.conversation.providers import API_PROVIDER
 from agents_backend.models import (
     ChannelAccount,
@@ -109,13 +110,14 @@ class OrchestrationService:
         inbound = await session.get(ChannelMessage, task.inbound_message_id)
         if conversation is None or inbound is None:
             raise RuntimeError("Conversa da tarefa não encontrada")
+        outbound_text = format_channel_text(conversation.provider, answer)
         outbound = ChannelMessage(
             workspace_id=task.workspace_id,
             conversation_id=task.conversation_id,
             reply_to_message_id=task.inbound_message_id,
             provider=conversation.provider,
             direction="outbound",
-            content=answer,
+            content=outbound_text,
             status="completed" if conversation.provider == API_PROVIDER else "queued",
             message_metadata={
                 "response_phase": "orchestration_result",
@@ -134,7 +136,7 @@ class OrchestrationService:
             depends_on_outbox_id=task.ack_outbox_id,
             provider=conversation.provider,
             destination=await self._destination(session, conversation, inbound),
-            payload={"type": "text", "text": {"body": answer}},
+            payload={"type": "text", "text": {"body": outbound_text}},
             status="pending",
             idempotency_key=f"orchestration-result:{task.id}",
         )
@@ -166,9 +168,7 @@ class OrchestrationService:
                 workspace_id=fresh.workspace_id,
                 orchestration_task_id=fresh.id,
                 event_type=(
-                    "waiting_confirmation"
-                    if result.pending_action is not None
-                    else "completed"
+                    "waiting_confirmation" if result.pending_action is not None else "completed"
                 ),
                 event_metadata={"run_id": str(result.run_id)},
             )
@@ -187,9 +187,7 @@ class OrchestrationService:
             raise error
         retry = task.attempts < task.max_attempts
         task.status = (
-            OrchestrationTaskStatus.QUEUED.value
-            if retry
-            else OrchestrationTaskStatus.FAILED.value
+            OrchestrationTaskStatus.QUEUED.value if retry else OrchestrationTaskStatus.FAILED.value
         )
         task.available_at = datetime.now(UTC) + timedelta(seconds=2**task.attempts)
         task.locked_by = None
@@ -226,4 +224,3 @@ async def process_orchestration_task_job(
         await session.rollback()
         await service.fail(session, task_id, exc)
         logger.exception("orchestration_task_failed", extra={"task_id": str(task_id)})
-

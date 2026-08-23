@@ -25,9 +25,40 @@ from agents_backend.schemas import (
 logger = logging.getLogger(__name__)
 
 _SEARCH_STOP_WORDS = {
-    "a", "ao", "aos", "as", "com", "da", "das", "de", "do", "dos", "e", "em", "na",
-    "nas", "no", "nos", "o", "os", "para", "por", "que", "sobre", "tem", "temos", "uma",
-    "umas", "um", "uns", "vai", "qual", "quais", "como", "esta", "estao",
+    "a",
+    "ao",
+    "aos",
+    "as",
+    "com",
+    "da",
+    "das",
+    "de",
+    "do",
+    "dos",
+    "e",
+    "em",
+    "na",
+    "nas",
+    "no",
+    "nos",
+    "o",
+    "os",
+    "para",
+    "por",
+    "que",
+    "sobre",
+    "tem",
+    "temos",
+    "uma",
+    "umas",
+    "um",
+    "uns",
+    "vai",
+    "qual",
+    "quais",
+    "como",
+    "esta",
+    "estao",
 }
 
 
@@ -256,11 +287,7 @@ async def search_memory(
     evidence = await _evidence_map(
         session,
         context.workspace_id,
-        [
-            (kind, row.id)
-            for kind, row in page
-            if kind in {"fact", "commitment"}
-        ],
+        [(kind, row.id) for kind, row in page if kind in {"fact", "commitment"}],
     )
     for kind, row in page:
         if kind == "entity":

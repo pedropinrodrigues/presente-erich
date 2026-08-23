@@ -215,22 +215,25 @@ class ConversationRouteDecision(BaseModel):
     route: Literal["answer", "delegate", "clarify", "request_confirmation"]
     understanding: str = Field(min_length=1, max_length=1000)
     handoff_context: str = Field(min_length=1, max_length=5000)
-    orchestration_intent: Literal[
-        "memory_write",
-        "memory_correction",
-        "memory_deletion",
-        "automation",
-        "external_communication",
-        "account_management",
-        "invite_management",
-        "compound",
-    ] | None = None
+    orchestration_intent: (
+        Literal[
+            "memory_write",
+            "memory_correction",
+            "memory_deletion",
+            "automation",
+            "external_communication",
+            "account_management",
+            "invite_management",
+            "compound",
+        ]
+        | None
+    ) = None
     user_message: str | None = Field(default=None, min_length=1, max_length=2000)
     acknowledgement: str | None = Field(default=None, min_length=1, max_length=240)
     answer_message: str | None = Field(default=None, min_length=1, max_length=2000)
-    read_operation: Literal[
-        "search_memory", "list_open_commitments", "get_pending_action"
-    ] | None = None
+    read_operation: (
+        Literal["search_memory", "list_open_commitments", "get_pending_action"] | None
+    ) = None
     read_query: str | None = Field(default=None, max_length=1000)
     read_item_type: Literal["entity", "fact", "commitment"] | None = None
     read_status: str | None = Field(default=None, max_length=100)

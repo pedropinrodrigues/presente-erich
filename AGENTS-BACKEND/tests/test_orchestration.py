@@ -183,9 +183,12 @@ async def test_luna_can_ask_for_clarification_or_confirmation_without_acknowledg
 
     assert result.answer == message
     assert ACKNOWLEDGEMENT not in result.answer
-    assert await session.scalar(
-        select(OrchestrationTask).where(OrchestrationTask.inbound_message_id == inbound.id)
-    ) is None
+    assert (
+        await session.scalar(
+            select(OrchestrationTask).where(OrchestrationTask.inbound_message_id == inbound.id)
+        )
+        is None
+    )
     if route == "request_confirmation":
         routing_payload = gateway.routing_calls[0]["input_items"][0]["content"]
         assert "Excluir a decisão atribuída à Ana" in routing_payload

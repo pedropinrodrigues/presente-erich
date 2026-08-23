@@ -517,6 +517,11 @@ class ToolExecution(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    external_action_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("external_actions.id", ondelete="SET NULL"), nullable=True
+    )
+    external_execution_id: Mapped[str | None] = mapped_column(String(150), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
@@ -559,6 +564,141 @@ class PendingAction(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
+
+
+class ExternalIntegration(Base):
+    __tablename__ = "external_integrations"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "user_id",
+            "provider",
+            "connected_account_id",
+            name="uq_external_integration_account",
+        ),
+        Index(
+            "ix_external_integrations_scope",
+            "workspace_id",
+            "user_id",
+            "toolkit_slug",
+            "status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    provider: Mapped[str] = mapped_column(String(30), default="composio", nullable=False)
+    toolkit_slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    auth_config_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    connected_account_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    composio_session_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    account_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    integration_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    last_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ExternalConnectionRequest(Base):
+    __tablename__ = "external_connection_requests"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "callback_state_hash", name="uq_external_connection_state"
+        ),
+        Index(
+            "ix_external_connection_requests_scope",
+            "workspace_id",
+            "user_id",
+            "status",
+            "expires_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    integration_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("external_integrations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    provider: Mapped[str] = mapped_column(String(30), default="composio", nullable=False)
+    toolkit_slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    auth_config_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    composio_request_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    callback_state_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ExternalAction(Base):
+    __tablename__ = "external_actions"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "idempotency_key", name="uq_external_action_key"),
+        Index("ix_external_actions_task", "orchestration_task_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    orchestration_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    integration_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("external_integrations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    pending_action_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pending_actions.id", ondelete="SET NULL"), nullable=True
+    )
+    provider: Mapped[str] = mapped_column(String(30), default="composio", nullable=False)
+    toolkit_slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    tool_slug: Mapped[str] = mapped_column(String(150), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(10), nullable=False)
+    arguments_sanitized: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    arguments_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    arguments_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    composio_execution_id: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    result_sanitized: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class OutboxMessage(Base):

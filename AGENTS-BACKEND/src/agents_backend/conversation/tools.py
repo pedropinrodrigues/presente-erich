@@ -167,9 +167,27 @@ class ToolSpec:
             "type": "function",
             "name": self.name,
             "description": self.description,
-            "parameters": self.arguments_model.model_json_schema(),
+            "parameters": _strict_tool_schema(self.arguments_model.model_json_schema()),
             "strict": True,
         }
+
+
+def _strict_tool_schema(value: Any) -> Any:
+    """Normalize Pydantic defaults for strict Responses API function schemas."""
+    if isinstance(value, list):
+        return [_strict_tool_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    normalized = {
+        key: _strict_tool_schema(item)
+        for key, item in value.items()
+        if key != "default"
+    }
+    properties = normalized.get("properties")
+    if isinstance(properties, dict):
+        normalized["required"] = list(properties)
+        normalized["additionalProperties"] = False
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -536,7 +554,7 @@ async def _dispute_memory(context: ToolContext, arguments: DisputeMemoryArgument
     )
 
 
-async def _create_pending_action(
+async def create_pending_action(
     context: ToolContext,
     *,
     tool_name: str,
@@ -613,7 +631,7 @@ async def _delete_memory(context: ToolContext, arguments: DeleteMemoryArguments)
         label = commitment.description if commitment is not None else ""
     if target is None:
         raise NotFoundError()
-    action = await _create_pending_action(
+    action = await create_pending_action(
         context,
         tool_name="delete_memory",
         arguments={
@@ -654,7 +672,7 @@ async def _delete_source(context: ToolContext, arguments: DeleteSourceArguments)
             Evidence.source_id == source.id,
         )
     )
-    action = await _create_pending_action(
+    action = await create_pending_action(
         context,
         tool_name="delete_source",
         arguments={"source_id": str(arguments.source_id), "reason": arguments.reason},
@@ -685,13 +703,12 @@ async def _confirm_action(context: ToolContext, arguments: ConfirmActionArgument
             "confirmation_requires_new_turn",
             "A confirmação precisa ser enviada em uma nova mensagem do usuário.",
         )
-    if (
-        _routing_confirmation_status(context) != "explicit"
-        and not _is_explicit_confirmation(context.inbound_message.content)
+    if _routing_confirmation_status(context) != "explicit" and not _is_explicit_confirmation(
+        context.inbound_message.content
     ):
         return _failure(
             "explicit_confirmation_required",
-            "A mensagem atual não é uma confirmação explícita da exclusão.",
+            "A mensagem atual não é uma confirmação explícita da ação pendente.",
         )
     now = datetime.now(UTC)
     action.status = "executing"
@@ -713,14 +730,20 @@ async def _confirm_action(context: ToolContext, arguments: ConfirmActionArgument
             action.arguments.get("reason"),
             commit=False,
         )
+    elif action.tool_name == "external_action":
+        from agents_backend.integrations.composio.service import execute_pending_external_action
+
+        external = await execute_pending_external_action(context, action)
+        if not external.ok:
+            action.status = "failed"
+            return external
+        result = external
     else:
         raise AppError("unsupported_pending_action", "A ação pendente não é suportada.", 409)
     action.status = "executed"
     action.executed_at = datetime.now(UTC)
     if action.orchestration_task_id is not None:
-        original_task = await context.session.get(
-            OrchestrationTask, action.orchestration_task_id
-        )
+        original_task = await context.session.get(OrchestrationTask, action.orchestration_task_id)
         if original_task is not None:
             original_task.status = OrchestrationTaskStatus.COMPLETED.value
             original_task.result_code = "confirmed_action_executed"
@@ -728,7 +751,10 @@ async def _confirm_action(context: ToolContext, arguments: ConfirmActionArgument
     return _success(
         "action_executed",
         "A ação confirmada foi executada.",
-        {"action": _pending_data(action), "result": result.model_dump(mode="json")},
+        {
+            "action": _pending_data(action),
+            "result": result.model_dump(mode="json"),
+        },
     )
 
 
@@ -758,10 +784,17 @@ async def _cancel_action(context: ToolContext, arguments: CancelActionArguments)
     action = actions[0]
     action.status = "cancelled"
     action.cancelled_at = datetime.now(UTC)
+    if action.tool_name == "external_action":
+        from agents_backend.models import ExternalAction
+
+        external_id = action.arguments.get("external_action_id")
+        if external_id:
+            external = await context.session.get(ExternalAction, uuid.UUID(str(external_id)))
+            if external is not None:
+                external.status = "cancelled"
+                external.completed_at = datetime.now(UTC)
     if action.orchestration_task_id is not None:
-        original_task = await context.session.get(
-            OrchestrationTask, action.orchestration_task_id
-        )
+        original_task = await context.session.get(OrchestrationTask, action.orchestration_task_id)
         if original_task is not None:
             original_task.status = OrchestrationTaskStatus.CANCELLED.value
             original_task.result_code = "pending_action_cancelled"
@@ -900,7 +933,17 @@ def _normalized_json(raw_arguments: str) -> tuple[dict[str, Any], str]:
 
 def _sanitized_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     sanitized = dict(arguments)
-    for field in ("transcript", "user_request", "handoff_context"):
+    for field in (
+        "transcript",
+        "user_request",
+        "handoff_context",
+        "body",
+        "text",
+        "description",
+        "recipient_email",
+        "to_number",
+        "attendees",
+    ):
         if field not in sanitized:
             continue
         value = str(sanitized[field])
@@ -910,6 +953,18 @@ def _sanitized_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str,
             "sha256": hashlib.sha256(value.encode()).hexdigest(),
         }
     return sanitized
+
+
+def _sanitized_result(envelope: ToolEnvelope) -> dict[str, Any]:
+    value = envelope.model_dump(mode="json")
+    data = value.get("data")
+    if isinstance(data, dict) and "authorization_url" in data:
+        url = str(data["authorization_url"])
+        data["authorization_url"] = {
+            "redacted": True,
+            "sha256": hashlib.sha256(url.encode()).hexdigest(),
+        }
+    return value
 
 
 class ToolRegistry:
@@ -953,9 +1008,7 @@ class ToolRegistry:
         except (json.JSONDecodeError, ValueError):
             parsed = {}
             arguments_hash = hashlib.sha256(raw_arguments.encode()).hexdigest()
-        key_material = ":".join(
-            [str(agent_run.id), call_id, tool_name, version, arguments_hash]
-        )
+        key_material = ":".join([str(agent_run.id), call_id, tool_name, version, arguments_hash])
         idempotency_key = hashlib.sha256(key_material.encode()).hexdigest()
         existing = await session.scalar(
             select(ToolExecution).where(
@@ -1062,7 +1115,7 @@ class ToolRegistry:
                         retryable=True,
                     )
 
-        execution.result = envelope.model_dump(mode="json")
+        execution.result = _sanitized_result(envelope)
         execution.status = "completed" if envelope.ok else "failed"
         execution.error_code = None if envelope.ok else envelope.code
         execution.completed_at = datetime.now(UTC)

@@ -71,9 +71,7 @@ async def test_api_message_id_cannot_be_reused_with_other_content(
 
 
 @pytest.mark.asyncio
-async def test_help_command_bypasses_model(
-    session: AsyncSession, context: RequestContext
-) -> None:
+async def test_help_command_bypasses_model(session: AsyncSession, context: RequestContext) -> None:
     agent = FakeAgent()
     service = ConversationService(
         settings=conversation_settings(),

@@ -1,4 +1,4 @@
-.PHONY: install api worker test lint format check migrate evaluate evaluate-live evaluate-conversation test-edge test-telegram-edge deploy-whatsapp-edge deploy-telegram-edge
+.PHONY: install api worker test lint format check migrate evaluate evaluate-live evaluate-conversation test-edge test-telegram-edge test-composio-edge deploy-whatsapp-edge deploy-telegram-edge deploy-composio-edge
 
 SUPABASE_PROJECT_REF ?= onuxlluzwlnkhbsfiind
 
@@ -40,8 +40,14 @@ test-edge:
 test-telegram-edge:
 	npx --yes deno@latest test supabase/functions/telegram-webhook/core_test.ts
 
+test-composio-edge:
+	npx --yes deno@latest test supabase/functions/composio-callback/core_test.ts
+
 deploy-whatsapp-edge:
 	npx --yes supabase@latest functions deploy whatsapp-webhook --project-ref $(SUPABASE_PROJECT_REF) --use-api --no-verify-jwt
 
 deploy-telegram-edge:
 	npx --yes supabase@latest functions deploy telegram-webhook --project-ref $(SUPABASE_PROJECT_REF) --use-api --no-verify-jwt
+
+deploy-composio-edge:
+	npx --yes supabase@latest functions deploy composio-callback --project-ref $(SUPABASE_PROJECT_REF) --use-api --no-verify-jwt

@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.telegram-webhook]
 verify_jwt = false
+
+[functions.composio-callback]
+verify_jwt = false

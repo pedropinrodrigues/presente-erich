@@ -27,6 +27,7 @@ from agents_backend.schemas import (
     PendingActionResponse,
 )
 
+from .formatting import format_channel_text
 from .phone_numbers import whatsapp_phone_aliases
 from .providers import API_PROVIDER, TELEGRAM_PROVIDER, WHATSAPP_PROVIDER
 from .router import route_command
@@ -117,9 +118,7 @@ class ConversationService:
         )
         original_id = str(inbound.message_metadata.get("client_message_id") or "")
         orchestration_task = await session.scalar(
-            select(OrchestrationTask).where(
-                OrchestrationTask.inbound_message_id == inbound.id
-            )
+            select(OrchestrationTask).where(OrchestrationTask.inbound_message_id == inbound.id)
         )
         return AgentTurnResponse(
             conversation_id=inbound.conversation_id,
@@ -272,9 +271,7 @@ class ConversationService:
             status="completed",
             message_metadata={
                 "response_phase": (
-                    "acknowledgement"
-                    if result.orchestration_task is not None
-                    else "final"
+                    "acknowledgement" if result.orchestration_task is not None else "final"
                 )
             },
         )
@@ -290,9 +287,7 @@ class ConversationService:
             tools_used=result.tools_used,
             pending_action=_pending_response(result.pending_action),
             orchestration_task_id=(
-                result.orchestration_task.id
-                if result.orchestration_task is not None
-                else None
+                result.orchestration_task.id if result.orchestration_task is not None else None
             ),
             idempotent_replay=False,
         )
@@ -472,19 +467,18 @@ class ConversationService:
             )
         else:
             result = await self.agent.run(session, context, conversation, inbound)
+        outbound_text = format_channel_text(conversation.provider, result.answer)
         outbound = ChannelMessage(
             workspace_id=conversation.workspace_id,
             conversation_id=conversation.id,
             reply_to_message_id=inbound.id,
             provider=conversation.provider,
             direction="outbound",
-            content=result.answer,
+            content=outbound_text,
             status="queued",
             message_metadata={
                 "response_phase": (
-                    "acknowledgement"
-                    if result.orchestration_task is not None
-                    else "final"
+                    "acknowledgement" if result.orchestration_task is not None else "final"
                 )
             },
         )
@@ -497,15 +491,15 @@ class ConversationService:
             if account is not None and account.provider == conversation.provider:
                 destination = account.external_account_id
         outbox = OutboxMessage(
-                workspace_id=conversation.workspace_id,
-                conversation_id=conversation.id,
-                channel_message_id=outbound.id,
-                provider=conversation.provider,
-                destination=destination,
-                payload={"type": "text", "text": {"body": result.answer}},
-                status="pending",
-                idempotency_key=f"reply:{inbound.id}",
-            )
+            workspace_id=conversation.workspace_id,
+            conversation_id=conversation.id,
+            channel_message_id=outbound.id,
+            provider=conversation.provider,
+            destination=destination,
+            payload={"type": "text", "text": {"body": outbound_text}},
+            status="pending",
+            idempotency_key=f"reply:{inbound.id}",
+        )
         session.add(outbox)
         await session.flush()
         if result.orchestration_task is not None:

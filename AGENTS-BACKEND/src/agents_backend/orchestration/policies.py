@@ -8,12 +8,26 @@ INTENT_CAPABILITIES: dict[OrchestrationIntent, tuple[str, ...]] = {
     OrchestrationIntent.MEMORY_WRITE: ("memory_read", "ingestion"),
     OrchestrationIntent.MEMORY_CORRECTION: ("memory_read", "memory_correction"),
     OrchestrationIntent.MEMORY_DELETION: ("memory_read", "memory_deletion"),
-    OrchestrationIntent.AUTOMATION: ("memory_read", "automation"),
+    OrchestrationIntent.AUTOMATION: (
+        "memory_read",
+        "automation",
+        "integration_connection",
+        "integration_read",
+        "integration_execute",
+    ),
     OrchestrationIntent.EXTERNAL_COMMUNICATION: (
         "memory_read",
         "external_communication",
+        "integration_connection",
+        "integration_read",
+        "integration_draft",
+        "integration_execute",
     ),
-    OrchestrationIntent.ACCOUNT_MANAGEMENT: ("account_management",),
+    OrchestrationIntent.ACCOUNT_MANAGEMENT: (
+        "account_management",
+        "integration_connection",
+        "integration_read",
+    ),
     OrchestrationIntent.INVITE_MANAGEMENT: ("invite_management",),
     OrchestrationIntent.COMPOUND: (
         "memory_read",
@@ -22,6 +36,10 @@ INTENT_CAPABILITIES: dict[OrchestrationIntent, tuple[str, ...]] = {
         "memory_deletion",
         "automation",
         "external_communication",
+        "integration_connection",
+        "integration_read",
+        "integration_draft",
+        "integration_execute",
     ),
 }
 
@@ -41,10 +59,13 @@ CAPABILITY_TOOLS: dict[str, tuple[str, ...]] = {
         "confirm_action",
         "cancel_action",
     ),
-    # These capabilities deliberately have no tool until their domain integrations exist.
     "automation": (),
     "external_communication": (),
     "account_management": (),
+    "integration_connection": (),
+    "integration_read": (),
+    "integration_draft": (),
+    "integration_execute": ("confirm_action", "cancel_action", "get_pending_action"),
     "invite_management": (),
 }
 

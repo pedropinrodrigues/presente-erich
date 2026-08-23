@@ -21,4 +21,3 @@ def route_command(message: str) -> DeterministicCommand | None:
     if command in {"/ajuda", "/help", "/start"}:
         return DeterministicCommand(name="help", answer=_HELP_TEXT)
     return None
-
