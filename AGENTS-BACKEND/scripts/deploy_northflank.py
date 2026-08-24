@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import shutil
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import httpx
 from dotenv import dotenv_values
+from sqlalchemy import select
+
+from agents_backend.db import get_session_factory
+from agents_backend.models import WorkerHeartbeat
+from agents_backend.worker.health import _queue_snapshot
 
 PROJECT_ID = "presente-erich"
 API_SERVICE_ID = "agents-api-prod"
@@ -224,6 +231,28 @@ def _resource_summary(project: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _database_summary() -> dict[str, Any]:
+    async with get_session_factory()() as session:
+        heartbeats = (
+            await session.execute(
+                select(WorkerHeartbeat).order_by(WorkerHeartbeat.last_seen_at.desc()).limit(10)
+            )
+        ).scalars()
+        return {
+            "queues": await _queue_snapshot(session, datetime.now(UTC)),
+            "workers": [
+                {
+                    "worker_id": heartbeat.worker_id,
+                    "status": heartbeat.status,
+                    "deployment_revision": heartbeat.deployment_revision,
+                    "consecutive_infra_failures": heartbeat.consecutive_infra_failures,
+                    "last_seen_at": heartbeat.last_seen_at.isoformat(),
+                }
+                for heartbeat in heartbeats
+            ],
+        }
+
+
 def provision(client: NorthflankClient) -> None:
     project = client.project()
     service_ids = {item.get("id") for item in project.get("services", [])}
@@ -245,7 +274,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Provisiona o backend no Northflank Sandbox")
     parser.add_argument(
         "command",
-        choices=["inspect", "provision", "build-api", "build-worker", "migrate"],
+        choices=[
+            "inspect",
+            "provision",
+            "build-api",
+            "build-worker",
+            "migrate",
+            "database-health",
+        ],
     )
     args = parser.parse_args()
     client = NorthflankClient()
@@ -259,6 +295,8 @@ def main() -> None:
         client.start_bundle_build(WORKER_SERVICE_ID)
     elif args.command == "migrate":
         print(json.dumps(client.run_migrations(), indent=2, ensure_ascii=False))
+    elif args.command == "database-health":
+        print(json.dumps(asyncio.run(_database_summary()), indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

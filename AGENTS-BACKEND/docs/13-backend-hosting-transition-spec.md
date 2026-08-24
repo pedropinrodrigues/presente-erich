@@ -288,6 +288,19 @@ indefinido.
 
 **Gate:** API e worker exibem o mesmo commit e passam prontidão.
 
+O provisionamento e a operação são executados a partir da raiz `AGENTS-BACKEND`:
+
+```bash
+.venv/bin/python scripts/deploy_northflank.py inspect
+.venv/bin/python scripts/deploy_northflank.py provision
+.venv/bin/python scripts/deploy_northflank.py migrate
+.venv/bin/python scripts/deploy_northflank.py database-health
+```
+
+`provision` é idempotente: atualiza o Secret Group `production-runtime` e só cria API, worker e
+job de migration quando os IDs esperados ainda não existem. O comando `database-health` não exibe
+segredos; ele mostra apenas filas, lag e heartbeats necessários ao canário.
+
 ### Etapa 4 — canário
 
 1. aplicar migrations pelo job;
