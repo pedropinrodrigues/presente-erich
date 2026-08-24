@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     supabase_service_role_key: SecretStr = Field(alias="SUPABASE_SERVICE_ROLE_KEY")
     database_url: SecretStr = Field(alias="DATABASE_URL")
     database_pooler_url: SecretStr | None = Field(default=None, alias="DATABASE_POOLER_URL")
+    database_connect_timeout_seconds: float = Field(
+        default=10.0, alias="DATABASE_CONNECT_TIMEOUT_SECONDS", ge=1, le=60
+    )
+    database_command_timeout_seconds: float = Field(
+        default=30.0, alias="DATABASE_COMMAND_TIMEOUT_SECONDS", ge=1, le=300
+    )
     openai_api_key: SecretStr = Field(alias="OPENAI_API_KEY")
     openai_model_extraction: str = Field(alias="OPENAI_MODEL_EXTRACTION")
     openai_model_answering: str = Field(alias="OPENAI_MODEL_ANSWERING")
@@ -53,6 +59,19 @@ class Settings(BaseSettings):
         default=0.5, alias="WORKER_POLL_INTERVAL_SECONDS", ge=0.1
     )
     worker_max_attempts: int = Field(default=3, alias="WORKER_MAX_ATTEMPTS", ge=1, le=10)
+    worker_cycle_timeout_seconds: float = Field(
+        default=600.0, alias="WORKER_CYCLE_TIMEOUT_SECONDS", ge=30, le=3600
+    )
+    worker_max_consecutive_infra_failures: int = Field(
+        default=5, alias="WORKER_MAX_CONSECUTIVE_INFRA_FAILURES", ge=1, le=100
+    )
+    worker_heartbeat_interval_seconds: float = Field(
+        default=30.0, alias="WORKER_HEARTBEAT_INTERVAL_SECONDS", ge=5, le=300
+    )
+    queue_lag_warning_seconds: int = Field(
+        default=60, alias="QUEUE_LAG_WARNING_SECONDS", ge=10, le=3600
+    )
+    deployment_revision: str | None = Field(default=None, alias="DEPLOYMENT_REVISION")
     conversation_history_messages: int = Field(
         default=12, alias="CONVERSATION_HISTORY_MESSAGES", ge=2, le=100
     )

@@ -75,6 +75,7 @@ externas, múltiplos agentes autônomos e loops agênticos abertos.
 - [Convites e contas pelo Telegram](docs/10-telegram-invites-and-accounts.md)
 - [Integrações externas pelo Composio MCP](docs/11-composio-mcp-gateway-integration-plan.md)
 - [Agendamentos e rotinas](docs/12-scheduled-automations.md)
+- [Transição do backend para hospedagem permanente](docs/13-backend-hosting-transition-spec.md)
 
 ## Critérios de aceite
 

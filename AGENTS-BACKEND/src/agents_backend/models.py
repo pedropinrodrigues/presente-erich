@@ -979,6 +979,23 @@ class ScheduleEvent(Base):
     )
 
 
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+    __table_args__ = (Index("ix_worker_heartbeats_seen", "last_seen_at"),)
+
+    worker_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    deployment_revision: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    consecutive_infra_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    heartbeat_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
 class OrchestrationTaskEvent(Base):
     __tablename__ = "orchestration_task_events"
     __table_args__ = (

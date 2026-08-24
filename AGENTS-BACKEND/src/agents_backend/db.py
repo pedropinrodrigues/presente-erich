@@ -16,7 +16,17 @@ from agents_backend.config import get_settings
 
 @lru_cache
 def get_engine() -> AsyncEngine:
-    return create_async_engine(get_settings().sqlalchemy_url, pool_pre_ping=True, pool_recycle=300)
+    settings = get_settings()
+    return create_async_engine(
+        settings.sqlalchemy_url,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_timeout=settings.database_connect_timeout_seconds,
+        connect_args={
+            "timeout": settings.database_connect_timeout_seconds,
+            "command_timeout": settings.database_command_timeout_seconds,
+        },
+    )
 
 
 @lru_cache

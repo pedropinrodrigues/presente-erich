@@ -1,4 +1,4 @@
-.PHONY: install api worker test lint format check migrate evaluate evaluate-live evaluate-conversation test-edge test-telegram-edge test-composio-edge deploy-whatsapp-edge deploy-telegram-edge deploy-composio-edge
+.PHONY: install api api-production worker worker-production test lint format check migrate evaluate evaluate-live evaluate-conversation test-edge test-telegram-edge test-composio-edge deploy-whatsapp-edge deploy-telegram-edge deploy-composio-edge
 
 SUPABASE_PROJECT_REF ?= onuxlluzwlnkhbsfiind
 
@@ -8,7 +8,13 @@ install:
 api:
 	.venv/bin/uvicorn agents_backend.api.main:app --reload
 
+api-production:
+	.venv/bin/uvicorn agents_backend.api.main:app --host 0.0.0.0 --port 8080
+
 worker:
+	.venv/bin/python -m agents_backend.worker.main
+
+worker-production:
 	.venv/bin/python -m agents_backend.worker.main
 
 test:

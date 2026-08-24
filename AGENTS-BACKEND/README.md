@@ -162,3 +162,5 @@ https://onuxlluzwlnkhbsfiind.supabase.co/functions/v1/composio-callback
   Composio MCP sem contornar as políticas, confirmações e auditoria do orquestrador.
 - `docs/12-scheduled-automations.md`: arquitetura e implementação de tarefas pontuais e rotinas
   recorrentes, autorização permanente limitada e briefings enriquecidos pela memória.
+- `docs/13-backend-hosting-transition-spec.md`: especificação para retirar API e worker do Mac e
+  publicá-los no Northflank com rollout, rollback, monitoramento e guardrails de custo zero.

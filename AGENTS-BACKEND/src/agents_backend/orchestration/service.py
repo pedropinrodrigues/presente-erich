@@ -17,11 +17,64 @@ from agents_backend.models import (
     OrchestrationTaskEvent,
     OrchestrationTaskStatus,
     OutboxMessage,
+    PendingAction,
 )
 
 from .runtime import OrchestrationAgent, OrchestrationResult
 
 logger = logging.getLogger(__name__)
+
+
+async def reconcile_closed_pending_task(session: AsyncSession) -> bool:
+    now = datetime.now(UTC)
+    row = (
+        await session.execute(
+            select(OrchestrationTask, PendingAction)
+            .join(PendingAction, PendingAction.orchestration_task_id == OrchestrationTask.id)
+            .where(
+                OrchestrationTask.status == OrchestrationTaskStatus.WAITING_CONFIRMATION.value,
+                or_(
+                    PendingAction.status.in_(["expired", "failed", "cancelled", "executed"]),
+                    (PendingAction.status == "pending") & (PendingAction.expires_at <= now),
+                ),
+            )
+            .order_by(PendingAction.created_at)
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        await session.rollback()
+        return False
+    task, action = row
+    if action.status == "pending":
+        action.status = "expired"
+    if action.status == "executed":
+        task.status = OrchestrationTaskStatus.COMPLETED.value
+        task.result_code = "confirmed_action_executed"
+        event_type = "reconciled_completed"
+    elif action.status == "cancelled":
+        task.status = OrchestrationTaskStatus.CANCELLED.value
+        task.result_code = "pending_action_cancelled"
+        event_type = "reconciled_cancelled"
+    else:
+        task.status = OrchestrationTaskStatus.FAILED.value
+        task.result_code = "pending_action_closed"
+        task.error_code = f"pending_action_{action.status}"
+        event_type = "reconciled_failed"
+    task.completed_at = now
+    task.locked_by = None
+    task.lease_expires_at = None
+    session.add(
+        OrchestrationTaskEvent(
+            workspace_id=task.workspace_id,
+            orchestration_task_id=task.id,
+            event_type=event_type,
+            event_metadata={"pending_action_id": str(action.id), "action_status": action.status},
+        )
+    )
+    await session.commit()
+    return True
 
 
 async def claim_orchestration_task(

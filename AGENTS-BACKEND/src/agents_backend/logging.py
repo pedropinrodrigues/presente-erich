@@ -21,6 +21,18 @@ class JsonFormatter(logging.Formatter):
         }
         if record.exc_info:
             payload["exception"] = record.exc_info[0].__name__ if record.exc_info[0] else None
+        for key in (
+            "worker_stage",
+            "worker_id",
+            "deployment_revision",
+            "error_type",
+            "error_message",
+            "consecutive_failures",
+            "queue_lag_seconds",
+        ):
+            value = getattr(record, key, None)
+            if value is not None:
+                payload[key] = value
         return json.dumps(payload, ensure_ascii=False)
 
 
