@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from cryptography.fernet import Fernet
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from agents_backend.conversation.tools import (
     ToolContext,
@@ -38,6 +38,7 @@ from agents_backend.integrations.composio.results import (
     normalize_mcp_result,
 )
 from agents_backend.models import (
+    AutomationGrant,
     ExternalAction,
     ExternalConnectionRequest,
     ExternalIntegration,
@@ -402,6 +403,9 @@ async def _execute_policy_for_integration(
     policy: ExternalToolPolicy,
     values: dict[str, Any],
     integration: ExternalIntegration,
+    *,
+    standing_authorized: bool = False,
+    maximum_external_writes_per_run: int = 1,
 ) -> ToolEnvelope:
     arguments = remote_arguments(policy, values)
     encoded = json.dumps(arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -422,7 +426,12 @@ async def _execute_policy_for_integration(
                 "A operação externa já havia sido concluída.",
                 existing.result_sanitized,
             )
-        if existing.status in {"ready", "failed"} and policy.risk != "R2":
+        if existing.status == "failed" and policy.risk == "R2" and standing_authorized:
+            return _failure(
+                "scheduled_write_not_retried",
+                "A escrita agendada falhou e não será repetida automaticamente.",
+            )
+        if existing.status in {"ready", "failed"} and (policy.risk != "R2" or standing_authorized):
             return await _execute_action(context, existing)
         if existing.pending_action_id is not None:
             pending = await context.session.get(PendingAction, existing.pending_action_id)
@@ -436,6 +445,19 @@ async def _execute_policy_for_integration(
                         "expires_at": pending.expires_at.isoformat(),
                     },
                 )
+    if standing_authorized and policy.risk == "R2" and context.orchestration_task is not None:
+        writes = await context.session.scalar(
+            select(func.count(ExternalAction.id)).where(
+                ExternalAction.workspace_id == context.request_context.workspace_id,
+                ExternalAction.orchestration_task_id == context.orchestration_task.id,
+                ExternalAction.risk_level == "R2",
+            )
+        )
+        if int(writes or 0) >= maximum_external_writes_per_run:
+            return _failure(
+                "schedule_write_limit_reached",
+                "A rotina atingiu o limite de escritas externas desta execução.",
+            )
     action = ExternalAction(
         workspace_id=context.request_context.workspace_id,
         user_id=context.request_context.identity.user_id,
@@ -449,11 +471,11 @@ async def _execute_policy_for_integration(
         arguments_ciphertext=_encrypt(context, arguments),
         arguments_hash=arguments_hash,
         idempotency_key=key,
-        status="proposed" if policy.risk == "R2" else "ready",
+        status="proposed" if policy.risk == "R2" and not standing_authorized else "ready",
     )
     context.session.add(action)
     await context.session.flush()
-    if policy.risk != "R2":
+    if policy.risk != "R2" or standing_authorized:
         return await _execute_action(context, action)
     from agents_backend.conversation.tools import create_pending_action
 
@@ -576,6 +598,72 @@ async def execute_policy(
 ) -> ToolEnvelope:
     selected_values = dict(values)
     raw_account_id = selected_values.pop("account_id", None)
+    standing_authorized = False
+    maximum_external_writes_per_run = 1
+    scheduled_account_scope: str | None = None
+    allowed_account_ids: set[str] = set()
+    if (
+        context.orchestration_task is not None
+        and context.orchestration_task.routing_context.get("route") == "scheduled"
+    ):
+        raw_grant_id = context.orchestration_task.routing_context.get("automation_grant_id")
+        try:
+            grant_id = uuid.UUID(str(raw_grant_id))
+        except ValueError:
+            return _failure("schedule_grant_invalid", "A autorização da rotina é inválida.")
+        grant = await context.session.scalar(
+            select(AutomationGrant).where(
+                AutomationGrant.id == grant_id,
+                AutomationGrant.workspace_id == context.request_context.workspace_id,
+                AutomationGrant.user_id == context.request_context.identity.user_id,
+                AutomationGrant.status == "active",
+            )
+        )
+        if grant is None or policy.name not in grant.allowed_tools:
+            return _failure(
+                "schedule_tool_not_authorized",
+                "A rotina não possui autorização para esta operação.",
+            )
+        risk_order = {"R0": 0, "R1": 1, "R2": 2}
+        if risk_order[policy.risk] > risk_order[grant.max_risk]:
+            return _failure(
+                "schedule_risk_not_authorized",
+                "O risco da operação excede a autorização da rotina.",
+            )
+        allowed_account_ids = set(grant.allowed_account_ids)
+        schedule_spec = context.orchestration_task.routing_context.get("schedule_spec")
+        if isinstance(schedule_spec, dict):
+            tool_policy = schedule_spec.get("tool_policy")
+            if isinstance(tool_policy, dict):
+                scheduled_account_scope = str(tool_policy.get("account_scope"))
+        if raw_account_id is None and scheduled_account_scope == "specific_accounts":
+            if len(allowed_account_ids) != 1:
+                return _failure(
+                    "schedule_account_selection_required",
+                    "A rotina precisa indicar uma única conta autorizada para esta operação.",
+                )
+            raw_account_id = next(iter(allowed_account_ids))
+        if policy.name == "gmail_send_email":
+            allowed_recipients = {
+                str(item).casefold() for item in grant.constraints.get("recipient_emails", [])
+            }
+            recipient = str(selected_values.get("recipient_email", "")).casefold()
+            if recipient not in allowed_recipients:
+                return _failure(
+                    "schedule_recipient_not_authorized",
+                    "O destinatário não está autorizado nesta rotina.",
+                )
+        if policy.name == "whatsapp_send_message":
+            allowed_numbers = {str(item) for item in grant.constraints.get("to_numbers", [])}
+            if str(selected_values.get("to_number", "")) not in allowed_numbers:
+                return _failure(
+                    "schedule_recipient_not_authorized",
+                    "O destinatário não está autorizado nesta rotina.",
+                )
+        maximum_external_writes_per_run = int(
+            grant.constraints.get("maximum_external_writes_per_run", 1)
+        )
+        standing_authorized = True
     if raw_account_id is not None:
         try:
             account_id = uuid.UUID(str(raw_account_id))
@@ -583,9 +671,20 @@ async def execute_policy(
             return _failure("external_account_not_found", "A conta externa indicada é inválida.")
         integration = await _scoped_integration(context, policy.toolkit, account_id)
         integrations = [integration] if integration is not None else []
+        if (
+            integrations
+            and allowed_account_ids
+            and str(integrations[0].id) not in allowed_account_ids
+        ):
+            return _failure(
+                "schedule_account_not_authorized",
+                "A conta escolhida não está autorizada nesta rotina.",
+            )
     else:
         active = await _integrations(context, policy.toolkit, active_only=True)
-        if policy.risk == "R0" and policy.toolkit in {"gmail", "googlecalendar"}:
+        if scheduled_account_scope == "primary":
+            integrations = active[:1]
+        elif policy.risk == "R0" and policy.toolkit in {"gmail", "googlecalendar"}:
             integrations = active
         else:
             integrations = active[:1]
@@ -598,7 +697,14 @@ async def execute_policy(
     results = [
         (
             integration,
-            await _execute_policy_for_integration(context, policy, selected_values, integration),
+            await _execute_policy_for_integration(
+                context,
+                policy,
+                selected_values,
+                integration,
+                standing_authorized=standing_authorized,
+                maximum_external_writes_per_run=maximum_external_writes_per_run,
+            ),
         )
         for integration in integrations
     ]

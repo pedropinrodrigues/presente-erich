@@ -79,6 +79,23 @@ class Settings(BaseSettings):
     orchestration_task_max_attempts: int = Field(
         default=3, alias="ORCHESTRATION_TASK_MAX_ATTEMPTS", ge=1, le=10
     )
+    scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
+    scheduler_poll_interval_seconds: float = Field(
+        default=1.0, alias="SCHEDULER_POLL_INTERVAL_SECONDS", ge=0.1, le=60
+    )
+    schedule_max_run_attempts: int = Field(
+        default=3, alias="SCHEDULE_MAX_RUN_ATTEMPTS", ge=1, le=10
+    )
+    schedule_default_misfire_grace_seconds: int = Field(
+        default=21600,
+        alias="SCHEDULE_DEFAULT_MISFIRE_GRACE_SECONDS",
+        ge=0,
+        le=604800,
+    )
+    schedule_max_tool_calls: int = Field(default=12, alias="SCHEDULE_MAX_TOOL_CALLS", ge=1, le=40)
+    schedule_max_concurrent_runs_per_user: int = Field(
+        default=2, alias="SCHEDULE_MAX_CONCURRENT_RUNS_PER_USER", ge=1, le=20
+    )
     pending_action_ttl_seconds: int = Field(
         default=600, alias="PENDING_ACTION_TTL_SECONDS", ge=60, le=3600
     )

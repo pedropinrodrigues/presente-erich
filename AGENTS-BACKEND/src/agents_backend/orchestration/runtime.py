@@ -31,7 +31,7 @@ from agents_backend.schemas import AgentToolUseResponse
 
 logger = logging.getLogger(__name__)
 
-ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-08-23-v7"
+ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-08-23-v9"
 
 ORCHESTRATION_INSTRUCTIONS = """
 Você é o agente orquestrador de tarefas de uma memória pessoal. Recebe uma tarefa persistida, com
@@ -58,6 +58,20 @@ Regras obrigatórias:
   Calendar, account_id=null consulta todas as contas conectadas. Em rascunhos e escritas,
   account_id=null usa a conta padrão; se o pedido indicar outra conta, envie o account_id dela.
 - Se o usuário quiser nomear uma conta ou mudar a padrão, use configure_external_account.
+- Para criar uma rotina, converta a expressão temporal em starts_at com offset, timezone IANA e
+  recurrence_rule RFC 5545. Use create_schedule uma única vez. Um aviso pontual para o próprio chat
+  usando apenas deliver_to_user é ativado imediatamente pela tool; não peça confirmação nesse caso.
+  Rotinas recorrentes e demais efeitos criam um draft com confirmação única. Respeite o status real
+  retornado pela tool e explique a próxima execução, tools, contas e efeitos autorizados.
+- Em lembretes pontuais com texto explícito, use somente deliver_to_user, desative perfil e memória,
+  use max_risk=R0, maximum_external_writes_per_run=0 e max_runs=1.
+- Para rotinas que apenas respondem ao próprio usuário, inclua deliver_to_user. Para briefings
+  enriquecidos, inclua calendar_list_events e search_memory. Use account_scope
+  all_connected_accounts em leituras gerais.
+- Não invente schedule_id. Use list_schedules antes de alterar, pausar, retomar, remover ou executar
+  uma rotina quando o ID não estiver no contexto.
+- Em uma execução com route=scheduled, cumpra somente schedule_spec, use apenas as tools fornecidas
+  e produza diretamente a mensagem final; nunca crie, edite ou execute outra rotina.
 - Quando o usuário perguntar se uma conexão funcionou, confira com a tool de status. Não deduza o
   estado apenas do histórico ou do contexto do Luna.
 - Se o pedido também solicitar dados da conta e o status estiver ativo, continue na mesma execução
@@ -206,6 +220,18 @@ class OrchestrationAgent:
             from agents_backend.integrations.composio.service import composio_tool_specs
 
             specs.extend(composio_tool_specs(task.allowed_capabilities))
+        scheduled_spec = (
+            task.routing_context.get("schedule_spec")
+            if task.routing_context.get("route") == "scheduled"
+            else None
+        )
+        if isinstance(scheduled_spec, dict):
+            tool_policy = scheduled_spec.get("tool_policy")
+            scheduled_tools = (
+                set(tool_policy.get("tools", [])) if isinstance(tool_policy, dict) else set()
+            )
+            scheduled_tools.discard("deliver_to_user")
+            specs = [spec for spec in specs if spec.name in scheduled_tools]
         registry = ToolRegistry(specs)
         current_datetime = datetime.now(ZoneInfo(self.settings.app_timezone))
         input_items: list[dict[str, Any]] = [
@@ -231,6 +257,18 @@ class OrchestrationAgent:
         last_response_id: str | None = None
         answer = ""
         steps = 0
+        tool_call_limit = (
+            min(self.settings.orchestration_max_tool_calls, self.settings.schedule_max_tool_calls)
+            if isinstance(scheduled_spec, dict)
+            else self.settings.orchestration_max_tool_calls
+        )
+        memory_query_limit = self.settings.schedule_max_tool_calls
+        if isinstance(scheduled_spec, dict):
+            context_policy = scheduled_spec.get("context_policy")
+            if isinstance(context_policy, dict):
+                memory_query_limit = int(
+                    context_policy.get("maximum_memory_queries", memory_query_limit)
+                )
         safety_identifier = hashlib.sha256(f"orchestration:{task.user_id}".encode()).hexdigest()
 
         try:
@@ -261,11 +299,21 @@ class OrchestrationAgent:
                     call_id = str(getattr(function_call, "call_id", ""))
                     tool_name = str(getattr(function_call, "name", ""))
                     raw_arguments = str(getattr(function_call, "arguments", "{}"))
-                    if total_tool_calls >= self.settings.orchestration_max_tool_calls:
+                    memory_queries_used = sum(item.name == "search_memory" for item in tools_used)
+                    if total_tool_calls >= tool_call_limit:
                         envelope = {
                             "ok": False,
                             "code": "tool_call_limit_reached",
                             "message": "O limite técnico desta execução foi atingido.",
+                            "data": None,
+                            "evidence": [],
+                            "retryable": False,
+                        }
+                    elif tool_name == "search_memory" and memory_queries_used >= memory_query_limit:
+                        envelope = {
+                            "ok": False,
+                            "code": "schedule_memory_query_limit_reached",
+                            "message": "O limite de buscas de memória desta rotina foi atingido.",
                             "data": None,
                             "evidence": [],
                             "retryable": False,

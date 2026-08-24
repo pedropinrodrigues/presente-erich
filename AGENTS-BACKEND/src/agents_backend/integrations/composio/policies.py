@@ -278,7 +278,7 @@ def remote_arguments(policy: ExternalToolPolicy, arguments: dict[str, object]) -
             "max_results_per_calendar": data.pop("max_results"),
             "show_deleted": False,
             "single_events": True,
-            "response_detail": "minimal",
+            "response_detail": "full",
         }
         if isinstance(start_date, date) and isinstance(end_date, date):
             remote["time_min"] = datetime.combine(start_date, time.min, zone).isoformat()

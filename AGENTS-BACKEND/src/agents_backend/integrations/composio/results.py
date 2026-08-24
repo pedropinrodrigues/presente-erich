@@ -114,6 +114,10 @@ def _compact_calendar_event(event: dict[str, Any]) -> dict[str, Any]:
             for attendee in attendee_values[:30]
             if isinstance(attendee, dict)
         ],
+        "calendar": _plain_excerpt(
+            event.get("calendar") or event.get("calendarSummary") or event.get("calendar_id"),
+            500,
+        ),
         "link": str(event.get("htmlLink") or event.get("display_url") or ""),
     }
 
@@ -125,7 +129,9 @@ def _calendar_result(remote_slug: str, decoded: Any) -> dict[str, Any]:
     raw_events = data.get("items") if isinstance(data, dict) else None
     if not isinstance(raw_events, list) and isinstance(data, dict):
         raw_events = data.get("events")
-    if isinstance(raw_summary, list):
+    if isinstance(raw_events, list) and raw_events:
+        events = [_compact_calendar_event(event) for event in raw_events if isinstance(event, dict)]
+    elif isinstance(raw_summary, list):
         events = [
             {
                 "event_id": str(event.get("event_id") or ""),
@@ -139,8 +145,6 @@ def _calendar_result(remote_slug: str, decoded: Any) -> dict[str, Any]:
             for event in raw_summary
             if isinstance(event, dict)
         ]
-    elif isinstance(raw_events, list):
-        events = [_compact_calendar_event(event) for event in raw_events if isinstance(event, dict)]
     else:
         events = []
     calendars = data.get("calendars_queried") if isinstance(data, dict) else None

@@ -82,6 +82,26 @@ class OrchestrationTaskStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class ScheduledAutomationStatus(StrEnum):
+    DRAFT = "draft"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    NEEDS_ATTENTION = "needs_attention"
+    COMPLETED = "completed"
+    EXPIRED = "expired"
+    DELETED = "deleted"
+
+
+class ScheduledRunStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    RETRYING = "retrying"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class Workspace(Base):
     __tablename__ = "workspaces"
 
@@ -800,6 +820,162 @@ class OrchestrationTask(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class ScheduledAutomation(Base):
+    __tablename__ = "scheduled_automations"
+    __table_args__ = (
+        Index("ix_scheduled_automations_due", "status", "next_run_at"),
+        Index("ix_scheduled_automations_scope", "workspace_id", "user_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    original_request: Mapped[str] = mapped_column(Text, nullable=False)
+    compiled_spec: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(100), nullable=False)
+    recurrence_rule: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(30), default=ScheduledAutomationStatus.DRAFT.value, nullable=False
+    )
+    misfire_policy: Mapped[str] = mapped_column(String(20), default="latest", nullable=False)
+    misfire_grace_seconds: Mapped[int] = mapped_column(Integer, default=21600, nullable=False)
+    max_runs: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    capabilities_snapshot: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    tool_policy_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ScheduledRun(Base):
+    __tablename__ = "scheduled_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "scheduled_automation_id", "scheduled_for", name="uq_scheduled_run_occurrence"
+        ),
+        Index("ix_scheduled_runs_claim", "status", "available_at", "scheduled_for"),
+        Index("ix_scheduled_runs_automation", "scheduled_automation_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    scheduled_automation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scheduled_automations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    automation_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(30), default=ScheduledRunStatus.QUEUED.value, nullable=False
+    )
+    manual: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    locked_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    orchestration_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    result_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AutomationGrant(Base):
+    __tablename__ = "automation_grants"
+    __table_args__ = (
+        UniqueConstraint(
+            "scheduled_automation_id",
+            "automation_revision",
+            name="uq_automation_grant_revision",
+        ),
+        Index("ix_automation_grants_scope", "workspace_id", "user_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    scheduled_automation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scheduled_automations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    automation_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    allowed_tools: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    allowed_account_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    constraints: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    max_risk: Mapped[str] = mapped_column(String(10), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    confirmed_by_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channel_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ScheduleEvent(Base):
+    __tablename__ = "schedule_events"
+    __table_args__ = (
+        Index("ix_schedule_events_automation", "scheduled_automation_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    scheduled_automation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scheduled_automations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scheduled_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scheduled_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    event_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
     )
 
 

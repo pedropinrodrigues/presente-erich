@@ -33,7 +33,7 @@ from .tools import ToolRegistry, delegation_tool_specs, fast_tool_specs
 
 logger = logging.getLogger(__name__)
 
-CONVERSATION_PROMPT_VERSION = "conversation-router-2026-08-23-v6"
+CONVERSATION_PROMPT_VERSION = "conversation-router-2026-08-23-v7"
 
 ROUTING_INSTRUCTIONS = """
 Você é Luna, a interface conversacional rápida. Sua primeira responsabilidade é compreender a
@@ -53,6 +53,7 @@ Capacidades delegadas atualmente disponíveis:
 - consultar eventos e horários livres no Google Calendar conectado;
 - consultar histórico do WhatsApp Business conectado;
 - criar rascunho de email e, com confirmação posterior, enviar email/mensagem ou alterar eventos.
+- criar, listar, alterar, pausar, retomar, remover e executar rotinas pontuais ou recorrentes.
 
 Regras obrigatórias:
 - Salvar, corrigir, contestar, apagar, confirmar/cancelar ação, automatizar, comunicar ou
@@ -63,6 +64,11 @@ Regras obrigatórias:
   mensagem também pergunta se a conexão deu certo ou pede para tentar novamente.
 - Consultar ou alterar agenda usa delegate com automation. Um pedido com mais de um domínio usa
   compound.
+- Criar ou administrar lembretes, horários, recorrências, rotinas e automações programadas usa
+  delegate com automation. Se horário, recorrência, destinatário ou conta essenciais estiverem
+  realmente ausentes, use clarify. Um lembrete pontual que apenas responde no próprio chat é
+  ativado pelo pedido inicial e não exige segunda confirmação; rotinas recorrentes ou com outros
+  efeitos são compiladas pelo Terra e pedem uma confirmação única.
 - Um primeiro pedido de exclusão usa delegate. O orquestrador localizará o alvo e proporá a ação.
 - Se houver ação pendente e o usuário disser claramente "sim", "confirmo", "pode apagar",
   "pode excluir" ou equivalente inequívoco, use delegate com a intenção correspondente.

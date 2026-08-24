@@ -178,11 +178,7 @@ def _strict_tool_schema(value: Any) -> Any:
         return [_strict_tool_schema(item) for item in value]
     if not isinstance(value, dict):
         return value
-    normalized = {
-        key: _strict_tool_schema(item)
-        for key, item in value.items()
-        if key != "default"
-    }
+    normalized = {key: _strict_tool_schema(item) for key, item in value.items() if key != "default"}
     properties = normalized.get("properties")
     if isinstance(properties, dict):
         normalized["required"] = list(properties)
@@ -738,6 +734,19 @@ async def _confirm_action(context: ToolContext, arguments: ConfirmActionArgument
             action.status = "failed"
             return external
         result = external
+    elif action.tool_name == "activate_schedule":
+        from agents_backend.scheduling.service import activate_pending_schedule
+
+        scheduled = await activate_pending_schedule(
+            context,
+            schedule_id=uuid.UUID(str(action.arguments["schedule_id"])),
+            revision=int(action.arguments["revision"]),
+            confirmation_message_id=context.inbound_message.id,
+        )
+        if not scheduled.ok:
+            action.status = "failed"
+            return scheduled
+        result = scheduled
     else:
         raise AppError("unsupported_pending_action", "A ação pendente não é suportada.", 409)
     action.status = "executed"
@@ -793,6 +802,14 @@ async def _cancel_action(context: ToolContext, arguments: CancelActionArguments)
             if external is not None:
                 external.status = "cancelled"
                 external.completed_at = datetime.now(UTC)
+    elif action.tool_name == "activate_schedule":
+        from agents_backend.scheduling.service import cancel_pending_schedule
+
+        await cancel_pending_schedule(
+            context,
+            schedule_id=uuid.UUID(str(action.arguments["schedule_id"])),
+            revision=int(action.arguments["revision"]),
+        )
     if action.orchestration_task_id is not None:
         original_task = await context.session.get(OrchestrationTask, action.orchestration_task_id)
         if original_task is not None:
@@ -920,7 +937,12 @@ def delegation_tool_specs() -> list[ToolSpec]:
 
 def orchestration_tool_specs(capabilities: list[str]) -> list[ToolSpec]:
     allowed = tool_names_for_capabilities(capabilities)
-    return [spec for spec in default_tool_specs() if spec.name in allowed]
+    specs = [spec for spec in default_tool_specs() if spec.name in allowed]
+    if "schedule_management" in capabilities:
+        from agents_backend.scheduling.service import schedule_tool_specs
+
+        specs.extend(schedule_tool_specs())
+    return specs
 
 
 def _normalized_json(raw_arguments: str) -> tuple[dict[str, Any], str]:

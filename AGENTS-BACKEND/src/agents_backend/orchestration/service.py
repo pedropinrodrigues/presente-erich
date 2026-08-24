@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select
@@ -163,6 +164,15 @@ class OrchestrationService:
         fresh.locked_by = None
         fresh.lease_expires_at = None
         await self._persist_result(session, fresh, result.answer)
+        from agents_backend.scheduling.dispatcher import finish_scheduled_run_for_task
+
+        scheduled_success = not any(item.status == "failed" for item in result.tools_used)
+        await finish_scheduled_run_for_task(
+            session,
+            fresh,
+            success=scheduled_success,
+            error_code=None if scheduled_success else "scheduled_tool_failed",
+        )
         session.add(
             OrchestrationTaskEvent(
                 workspace_id=fresh.workspace_id,
@@ -204,11 +214,39 @@ class OrchestrationService:
         if not retry:
             task.completed_at = datetime.now(UTC)
             task.result_code = "failed"
-            await self._persist_result(
+            is_scheduled = task.routing_context.get("route") == "scheduled"
+            failure_message = (
+                "Não consegui executar esta rotina agora. Ela foi marcada como precisando de "
+                "atenção; você pode revisar ou executar novamente."
+                if is_scheduled
+                else (
+                    "Não consegui concluir esta tarefa agora. Tente novamente em uma nova mensagem."
+                )
+            )
+            await self._persist_result(session, task, failure_message)
+            from agents_backend.scheduling.dispatcher import finish_scheduled_run_for_task
+
+            await finish_scheduled_run_for_task(
                 session,
                 task,
-                "Não consegui concluir esta tarefa agora. Tente novamente em uma nova mensagem.",
+                success=False,
+                error_code=type(error).__name__,
             )
+            if is_scheduled:
+                from agents_backend.models import ScheduledAutomation, ScheduledAutomationStatus
+
+                raw_schedule_id = task.routing_context.get("scheduled_automation_id")
+                try:
+                    schedule_id = uuid.UUID(str(raw_schedule_id))
+                except ValueError:
+                    schedule_id = None
+                schedule = (
+                    await session.get(ScheduledAutomation, schedule_id)
+                    if schedule_id is not None
+                    else None
+                )
+                if schedule is not None:
+                    schedule.status = ScheduledAutomationStatus.NEEDS_ATTENTION.value
         await session.commit()
 
 

@@ -160,3 +160,5 @@ https://onuxlluzwlnkhbsfiind.supabase.co/functions/v1/composio-callback
   isolamento de workspaces pelo Telegram.
 - `docs/11-composio-mcp-gateway-integration-plan.md`: plano para integrar produtos externos via
   Composio MCP sem contornar as políticas, confirmações e auditoria do orquestrador.
+- `docs/12-scheduled-automations.md`: arquitetura e implementação de tarefas pontuais e rotinas
+  recorrentes, autorização permanente limitada e briefings enriquecidos pela memória.

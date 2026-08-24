@@ -73,6 +73,8 @@ externas, múltiplos agentes autônomos e loops agênticos abertos.
 - [Agente conversacional e tools](docs/08-whatsapp-agent-tools-plan.md)
 - [Agente rápido e orquestrador de tarefas](docs/09-orchestrated-agent-architecture.md)
 - [Convites e contas pelo Telegram](docs/10-telegram-invites-and-accounts.md)
+- [Integrações externas pelo Composio MCP](docs/11-composio-mcp-gateway-integration-plan.md)
+- [Agendamentos e rotinas](docs/12-scheduled-automations.md)
 
 ## Critérios de aceite
 

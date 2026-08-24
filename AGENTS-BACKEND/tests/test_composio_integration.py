@@ -103,7 +103,7 @@ def test_calendar_list_arguments_are_mapped_to_remote_contract() -> None:
         "time_max": "2026-08-25T00:00:00-03:00",
         "single_events": True,
         "show_deleted": False,
-        "response_detail": "minimal",
+        "response_detail": "full",
         "max_results_per_calendar": 5,
     }
 

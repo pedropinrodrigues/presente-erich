@@ -11,6 +11,7 @@ INTENT_CAPABILITIES: dict[OrchestrationIntent, tuple[str, ...]] = {
     OrchestrationIntent.AUTOMATION: (
         "memory_read",
         "automation",
+        "schedule_management",
         "integration_connection",
         "integration_read",
         "integration_execute",
@@ -35,6 +36,7 @@ INTENT_CAPABILITIES: dict[OrchestrationIntent, tuple[str, ...]] = {
         "memory_correction",
         "memory_deletion",
         "automation",
+        "schedule_management",
         "external_communication",
         "integration_connection",
         "integration_read",
@@ -60,6 +62,7 @@ CAPABILITY_TOOLS: dict[str, tuple[str, ...]] = {
         "cancel_action",
     ),
     "automation": (),
+    "schedule_management": (),
     "external_communication": (),
     "account_management": (),
     "integration_connection": (),

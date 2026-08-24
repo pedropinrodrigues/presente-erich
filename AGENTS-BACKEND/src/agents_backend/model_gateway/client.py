@@ -284,7 +284,7 @@ class ModelGateway:
             value=parsed,
             provider_request_id=getattr(response, "id", None),
             model=self.settings.openai_model_conversation,
-            prompt_version="conversation-router-2026-08-23-v6",
+            prompt_version="conversation-router-2026-08-23-v7",
             schema_version="conversation-route-v5",
             duration_ms=int((time.monotonic() - started) * 1000),
             input_tokens=getattr(usage, "input_tokens", None),

@@ -25,6 +25,12 @@ from agents_backend.orchestration.service import (
     claim_orchestration_task,
     process_orchestration_task_job,
 )
+from agents_backend.scheduling.dispatcher import (
+    claim_scheduled_run,
+    dispatch_due_schedule,
+    expire_stale_schedules,
+    process_scheduled_run_job,
+)
 from agents_backend.worker.service import claim_job, default_worker_id, process_job
 
 logger = logging.getLogger(__name__)
@@ -71,6 +77,18 @@ async def worker_loop() -> None:
                         session, orchestration_task, orchestration_service
                     )
                     processed = True
+            if settings.scheduler_enabled:
+                async with get_session_factory()() as session:
+                    if await expire_stale_schedules(session):
+                        processed = True
+                async with get_session_factory()() as session:
+                    if await dispatch_due_schedule(session, settings):
+                        processed = True
+                async with get_session_factory()() as session:
+                    scheduled_run = await claim_scheduled_run(session, worker_id, settings)
+                    if scheduled_run is not None:
+                        await process_scheduled_run_job(session, scheduled_run, settings)
+                        processed = True
             async with get_session_factory()() as session:
                 job = await claim_job(session, worker_id)
                 if job is not None:
