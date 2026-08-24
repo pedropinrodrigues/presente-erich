@@ -14,6 +14,8 @@ from dotenv import dotenv_values
 PROJECT_ID = "presente-erich"
 API_SERVICE_ID = "agents-api-prod"
 WORKER_SERVICE_ID = "agents-worker-prod"
+MIGRATION_JOB_ID = "agents-migrate-prod"
+RUNTIME_GROUP_ID = "production-runtime"
 NORTHFLANK_API_BASE = "https://api.northflank.com/v1"
 PUBLIC_BUNDLE_URL = (
     "https://github.com/pedropinrodrigues/presente-erich/"
@@ -82,8 +84,9 @@ class NorthflankClient:
     def project(self) -> dict[str, Any]:
         return self.request("GET", f"/projects/{PROJECT_ID}")
 
-    def create_secret_group(self) -> None:
+    def put_secret_group(self) -> None:
         payload = {
+            "id": RUNTIME_GROUP_ID,
             "name": "Production Runtime",
             "description": "Agents backend production runtime variables",
             "type": "secret",
@@ -92,7 +95,7 @@ class NorthflankClient:
             "restrictions": {"restricted": False},
             "secrets": {"variables": _runtime_variables()},
         }
-        self.request("POST", f"/projects/{PROJECT_ID}/secrets", payload)
+        self.request("PUT", f"/projects/{PROJECT_ID}/secrets", payload)
 
     @staticmethod
     def _build_settings() -> dict[str, Any]:
@@ -163,6 +166,36 @@ class NorthflankClient:
         }
         self.request("POST", f"/projects/{PROJECT_ID}/services/combined", payload)
 
+    def create_migration_job(self) -> None:
+        payload = {
+            "name": "Agents DB Migrate",
+            "description": "Runs Alembic migrations against the production database",
+            "billing": {"deploymentPlan": "nf-compute-20"},
+            "deployment": {
+                "docker": {
+                    "configType": "customCommand",
+                    "customCommand": "alembic upgrade head",
+                },
+                "storage": {"ephemeralStorage": {"storageSize": 1024}},
+                "internal": {
+                    "id": API_SERVICE_ID,
+                    "branch": "main",
+                    "buildSHA": "latest",
+                },
+            },
+            "backoffLimit": 1,
+            "runOnSourceChange": "never",
+            "activeDeadlineSeconds": 600,
+        }
+        self.request("POST", f"/projects/{PROJECT_ID}/jobs/manual", payload)
+
+    def run_migrations(self) -> dict[str, Any]:
+        return self.request(
+            "POST",
+            f"/projects/{PROJECT_ID}/jobs/{MIGRATION_JOB_ID}/runs",
+            {},
+        )
+
     def start_bundle_build(self, service_id: str) -> None:
         self.request(
             "POST",
@@ -194,20 +227,26 @@ def _resource_summary(project: dict[str, Any]) -> dict[str, Any]:
 def provision(client: NorthflankClient) -> None:
     project = client.project()
     service_ids = {item.get("id") for item in project.get("services", [])}
-    if not service_ids:
-        client.create_secret_group()
+    job_ids = {item.get("id") for item in project.get("jobs", [])}
+    # PUT gives us one stable secret group and safely refreshes values/revision on reruns.
+    client.put_secret_group()
     if API_SERVICE_ID not in service_ids:
         client.create_api()
     project = client.project()
     service_ids = {item.get("id") for item in project.get("services", [])}
     if WORKER_SERVICE_ID not in service_ids:
         client.create_worker()
+    if MIGRATION_JOB_ID not in job_ids:
+        client.create_migration_job()
     print(json.dumps(_resource_summary(client.project()), indent=2, ensure_ascii=False))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Provisiona o backend no Northflank Sandbox")
-    parser.add_argument("command", choices=["inspect", "provision", "build-api", "build-worker"])
+    parser.add_argument(
+        "command",
+        choices=["inspect", "provision", "build-api", "build-worker", "migrate"],
+    )
     args = parser.parse_args()
     client = NorthflankClient()
     if args.command == "inspect":
@@ -218,6 +257,8 @@ def main() -> None:
         client.start_bundle_build(API_SERVICE_ID)
     elif args.command == "build-worker":
         client.start_bundle_build(WORKER_SERVICE_ID)
+    elif args.command == "migrate":
+        print(json.dumps(client.run_migrations(), indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
