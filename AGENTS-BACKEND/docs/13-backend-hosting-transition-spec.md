@@ -124,7 +124,7 @@ O worker continua usando PostgreSQL, leases e `FOR UPDATE SKIP LOCKED`. A arquit
 uma sobreposição temporária entre o worker local e o hospedado sem duplicar a ocorrência lógica,
 mas a sobreposição deve existir apenas durante o canário.
 
-### `agents-migrate-prod`
+### `agents-db-migrate`
 
 - tipo: job manual criado a partir da mesma imagem;
 - comando: `alembic upgrade head`;
@@ -294,6 +294,8 @@ O provisionamento e a operação são executados a partir da raiz `AGENTS-BACKEN
 .venv/bin/python scripts/deploy_northflank.py inspect
 .venv/bin/python scripts/deploy_northflank.py provision
 .venv/bin/python scripts/deploy_northflank.py migrate
+.venv/bin/python scripts/deploy_northflank.py migration-status
+.venv/bin/python scripts/deploy_northflank.py smoke-api
 .venv/bin/python scripts/deploy_northflank.py database-health
 ```
 

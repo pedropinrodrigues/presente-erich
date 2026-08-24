@@ -21,7 +21,7 @@ from agents_backend.worker.health import _queue_snapshot
 PROJECT_ID = "presente-erich"
 API_SERVICE_ID = "agents-api-prod"
 WORKER_SERVICE_ID = "agents-worker-prod"
-MIGRATION_JOB_ID = "agents-migrate-prod"
+MIGRATION_JOB_ID = "agents-db-migrate"
 RUNTIME_GROUP_ID = "production-runtime"
 NORTHFLANK_API_BASE = "https://api.northflank.com/v1"
 PUBLIC_BUNDLE_URL = (
@@ -90,6 +90,15 @@ class NorthflankClient:
 
     def project(self) -> dict[str, Any]:
         return self.request("GET", f"/projects/{PROJECT_ID}")
+
+    def service(self, service_id: str) -> dict[str, Any]:
+        return self.request("GET", f"/projects/{PROJECT_ID}/services/{service_id}")
+
+    def job(self, job_id: str) -> dict[str, Any]:
+        return self.request("GET", f"/projects/{PROJECT_ID}/jobs/{job_id}")
+
+    def job_runs(self, job_id: str) -> Any:
+        return self.request("GET", f"/projects/{PROJECT_ID}/jobs/{job_id}/runs")
 
     def put_secret_group(self) -> None:
         payload = {
@@ -231,6 +240,40 @@ def _resource_summary(project: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _deployment_summary(client: NorthflankClient) -> dict[str, Any]:
+    project = client.project()
+    summary = _resource_summary(project)
+    summary["services"] = []
+    for item in project.get("services", []):
+        detail = client.service(item["id"])
+        summary["services"].append(
+            {
+                "id": detail.get("id"),
+                "name": detail.get("name"),
+                "status": detail.get("status"),
+                "ports": [
+                    {
+                        key: port.get(key)
+                        for key in ("name", "internalPort", "public", "protocol", "dns", "domains")
+                        if port.get(key) is not None
+                    }
+                    for port in detail.get("ports", [])
+                ],
+            }
+        )
+    summary["jobs"] = []
+    for item in project.get("jobs", []):
+        detail = client.job(item["id"])
+        summary["jobs"].append(
+            {
+                "id": detail.get("id"),
+                "name": detail.get("name"),
+                "status": detail.get("status"),
+            }
+        )
+    return summary
+
+
 async def _database_summary() -> dict[str, Any]:
     async with get_session_factory()() as session:
         heartbeats = (
@@ -251,6 +294,25 @@ async def _database_summary() -> dict[str, Any]:
                 for heartbeat in heartbeats
             ],
         }
+
+
+def _api_smoke(client: NorthflankClient) -> dict[str, Any]:
+    service = client.service(API_SERVICE_ID)
+    public_port = next((port for port in service.get("ports", []) if port.get("public")), None)
+    if not public_port or not public_port.get("dns"):
+        raise RuntimeError("A API ainda não possui DNS público")
+    base_url = f"https://{public_port['dns']}"
+    checks: dict[str, Any] = {"base_url": base_url}
+    with httpx.Client(base_url=base_url, timeout=30, follow_redirects=True) as smoke_client:
+        for path in ("/health", "/ready"):
+            response = smoke_client.get(path)
+            try:
+                body: Any = response.json()
+            except ValueError:
+                body = response.text[:500]
+            checks[path] = {"status_code": response.status_code, "body": body}
+            response.raise_for_status()
+    return checks
 
 
 def provision(client: NorthflankClient) -> None:
@@ -280,13 +342,15 @@ def main() -> None:
             "build-api",
             "build-worker",
             "migrate",
+            "migration-status",
+            "smoke-api",
             "database-health",
         ],
     )
     args = parser.parse_args()
     client = NorthflankClient()
     if args.command == "inspect":
-        print(json.dumps(_resource_summary(client.project()), indent=2, ensure_ascii=False))
+        print(json.dumps(_deployment_summary(client), indent=2, ensure_ascii=False))
     elif args.command == "provision":
         provision(client)
     elif args.command == "build-api":
@@ -295,6 +359,10 @@ def main() -> None:
         client.start_bundle_build(WORKER_SERVICE_ID)
     elif args.command == "migrate":
         print(json.dumps(client.run_migrations(), indent=2, ensure_ascii=False))
+    elif args.command == "migration-status":
+        print(json.dumps(client.job_runs(MIGRATION_JOB_ID), indent=2, ensure_ascii=False))
+    elif args.command == "smoke-api":
+        print(json.dumps(_api_smoke(client), indent=2, ensure_ascii=False))
     elif args.command == "database-health":
         print(json.dumps(asyncio.run(_database_summary()), indent=2, ensure_ascii=False))
 
@@ -303,5 +371,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        print(str(exc) or type(exc).__name__, file=sys.stderr)
         raise SystemExit(1) from exc
