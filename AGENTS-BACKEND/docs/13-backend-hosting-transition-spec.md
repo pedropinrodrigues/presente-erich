@@ -297,11 +297,16 @@ O provisionamento e a operação são executados a partir da raiz `AGENTS-BACKEN
 .venv/bin/python scripts/deploy_northflank.py migration-status
 .venv/bin/python scripts/deploy_northflank.py smoke-api
 .venv/bin/python scripts/deploy_northflank.py database-health
+.venv/bin/python scripts/deploy_northflank.py telegram-health
+.venv/bin/python scripts/deploy_northflank.py telegram-canary
+.venv/bin/python scripts/deploy_northflank.py scheduler-canary
 ```
 
 `provision` é idempotente: atualiza o Secret Group `production-runtime` e só cria API, worker e
 job de migration quando os IDs esperados ainda não existem. O comando `database-health` não exibe
-segredos; ele mostra apenas filas, lag e heartbeats necessários ao canário.
+segredos; ele mostra apenas filas, lag e heartbeats necessários ao canário. Os comandos de canário
+usam a conta Telegram ativa mais recente: `telegram-canary` testa ingestão, worker e entrega com
+`/help`, enquanto `scheduler-canary` agenda e entrega uma mensagem após um minuto.
 
 ### Etapa 4 — canário
 

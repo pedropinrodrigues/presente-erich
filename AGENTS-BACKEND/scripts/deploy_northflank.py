@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,9 @@ import httpx
 from dotenv import dotenv_values
 from sqlalchemy import select
 
+from agents_backend.conversation.service import ConversationService
 from agents_backend.db import get_session_factory
-from agents_backend.models import WorkerHeartbeat
+from agents_backend.models import ChannelAccount, ChannelMessage, WorkerHeartbeat
 from agents_backend.worker.health import _queue_snapshot
 
 PROJECT_ID = "presente-erich"
@@ -296,6 +298,62 @@ async def _database_summary() -> dict[str, Any]:
         }
 
 
+async def _telegram_summary() -> dict[str, Any]:
+    async with get_session_factory()() as session:
+        messages = (
+            await session.execute(
+                select(ChannelMessage)
+                .where(ChannelMessage.provider == "telegram")
+                .order_by(ChannelMessage.created_at.desc())
+                .limit(12)
+            )
+        ).scalars()
+        return {
+            "messages": [
+                {
+                    "id": str(message.id),
+                    "direction": message.direction,
+                    "status": message.status,
+                    "content_preview": message.content[:100],
+                    "error_code": message.error_code,
+                    "created_at": message.created_at.isoformat(),
+                }
+                for message in messages
+            ]
+        }
+
+
+async def _enqueue_telegram_canary(text: str) -> dict[str, Any]:
+    async with get_session_factory()() as session:
+        account = await session.scalar(
+            select(ChannelAccount)
+            .where(
+                ChannelAccount.provider == "telegram",
+                ChannelAccount.active.is_(True),
+            )
+            .order_by(ChannelAccount.verified_at.desc(), ChannelAccount.created_at.desc())
+            .limit(1)
+        )
+        if account is None:
+            raise RuntimeError("Nenhuma conta Telegram ativa foi encontrada")
+        canary_id = f"deploy-canary:{uuid.uuid4()}"
+        message, replayed = await ConversationService().ingest_telegram_text(
+            session,
+            chat_id=account.external_account_id,
+            user_id=account.external_account_id,
+            external_message_id=canary_id,
+            text=text,
+            timestamp=str(int(datetime.now(UTC).timestamp())),
+        )
+        if message is None:
+            raise RuntimeError("A conta Telegram ativa não aceitou o canário")
+        return {
+            "message_id": str(message.id),
+            "external_message_id": canary_id,
+            "replayed": replayed,
+        }
+
+
 def _api_smoke(client: NorthflankClient) -> dict[str, Any]:
     service = client.service(API_SERVICE_ID)
     public_port = next((port for port in service.get("ports", []) if port.get("public")), None)
@@ -345,6 +403,9 @@ def main() -> None:
             "migration-status",
             "smoke-api",
             "database-health",
+            "telegram-health",
+            "telegram-canary",
+            "scheduler-canary",
         ],
     )
     args = parser.parse_args()
@@ -365,6 +426,29 @@ def main() -> None:
         print(json.dumps(_api_smoke(client), indent=2, ensure_ascii=False))
     elif args.command == "database-health":
         print(json.dumps(asyncio.run(_database_summary()), indent=2, ensure_ascii=False))
+    elif args.command == "telegram-health":
+        print(json.dumps(asyncio.run(_telegram_summary()), indent=2, ensure_ascii=False))
+    elif args.command == "telegram-canary":
+        print(
+            json.dumps(
+                asyncio.run(_enqueue_telegram_canary("/help")),
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+    elif args.command == "scheduler-canary":
+        print(
+            json.dumps(
+                asyncio.run(
+                    _enqueue_telegram_canary(
+                        "Daqui a 1 minuto, mande nesta conversa: "
+                        "Canário do agendador remoto concluído."
+                    )
+                ),
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
 
 
 if __name__ == "__main__":
