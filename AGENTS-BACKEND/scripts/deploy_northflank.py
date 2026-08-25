@@ -474,18 +474,22 @@ async def _invitation_rpc_canary() -> dict[str, Any]:
 
 
 async def _enqueue_telegram_canary(text: str) -> dict[str, Any]:
+    admin_ids = get_settings().configured_platform_admin_ids
+    if not admin_ids:
+        raise RuntimeError("Nenhum administrador está configurado para receber o canário")
     async with get_session_factory()() as session:
         account = await session.scalar(
             select(ChannelAccount)
             .where(
                 ChannelAccount.provider == "telegram",
                 ChannelAccount.active.is_(True),
+                ChannelAccount.user_id.in_(admin_ids),
             )
             .order_by(ChannelAccount.verified_at.desc(), ChannelAccount.created_at.desc())
             .limit(1)
         )
         if account is None:
-            raise RuntimeError("Nenhuma conta Telegram ativa foi encontrada")
+            raise RuntimeError("Nenhuma conta Telegram ativa do administrador foi encontrada")
         canary_id = f"deploy-canary:{uuid.uuid4()}"
         message, replayed = await ConversationService().ingest_telegram_text(
             session,
