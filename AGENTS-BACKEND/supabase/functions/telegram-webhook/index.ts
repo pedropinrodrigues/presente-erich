@@ -1,7 +1,9 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 import {
+  extractTelegramInviteToken,
   extractTelegramVerificationCode,
+  isTelegramStartCommand,
   parseTelegramUpdate,
   secureTextEquals,
   sha256Hex,
@@ -14,6 +16,12 @@ const decoder = new TextDecoder();
 type DatabaseClient = SupabaseClient;
 type ChannelAccount = { id: string; workspace_id: string; user_id: string };
 type Conversation = { id: string };
+type InviteAcceptance = {
+  result_code: string;
+  resolved_user_id: string | null;
+  resolved_workspace_id: string | null;
+  resolved_channel_account_id: string | null;
+};
 
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
@@ -87,6 +95,25 @@ async function activeAccount(
     .maybeSingle<ChannelAccount>();
   if (error) throw error;
   return data;
+}
+
+async function acceptInvite(
+  client: DatabaseClient,
+  message: TelegramInboundText,
+  token: string,
+): Promise<string> {
+  const { data, error } = await client.rpc("accept_telegram_invite", {
+    p_token_hash: await sha256Hex(token),
+    p_chat_id: message.chatId,
+    p_telegram_user_id: message.userId,
+    p_profile_metadata: {
+      first_name: message.firstName,
+      language_code: message.languageCode,
+    },
+  });
+  if (error) throw error;
+  const row = (Array.isArray(data) ? data[0] : data) as InviteAcceptance | null;
+  return row?.result_code ?? "unavailable";
 }
 
 async function findConversation(
@@ -230,6 +257,36 @@ async function handleWebhook(request: Request): Promise<Response> {
   let accepted = 0;
   let duplicates = 0;
   for (const message of parseTelegramUpdate(payload)) {
+    const inviteToken = extractTelegramInviteToken(message.text);
+    if (inviteToken) {
+      const result = await acceptInvite(client, message, inviteToken);
+      accepted += 1;
+      try {
+        if ([
+          "created",
+          "already_registered",
+          "already_accepted_by_same_identity",
+        ].includes(result)) {
+          await sendTelegramText(
+            message.chatId,
+            result === "created"
+              ? "Sua conta foi criada e este Telegram já está vinculado. Você possui um espaço pessoal separado e já pode conversar comigo."
+              : "Seu Telegram já possui uma conta. Continue usando normalmente.",
+          );
+        } else {
+          await sendTelegramText(
+            message.chatId,
+            "Este convite não está mais disponível. Peça um novo link à pessoa que convidou você.",
+          );
+        }
+      } catch (error) {
+        console.error(
+          "telegram_invite_confirmation_failed",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      continue;
+    }
     if (extractTelegramVerificationCode(message.text)) {
       if (await activatePendingAccount(client, message.chatId, message.text)) {
         accepted += 1;
@@ -246,6 +303,17 @@ async function handleWebhook(request: Request): Promise<Response> {
         }
       }
       continue;
+    }
+    if (isTelegramStartCommand(message.text)) {
+      const account = await activeAccount(client, message.chatId);
+      if (!account) {
+        accepted += 1;
+        await sendTelegramText(
+          message.chatId,
+          "Para criar uma conta, abra um convite válido enviado pelo administrador.",
+        );
+        continue;
+      }
     }
     const result = await ingestMessage(client, message);
     if (result === "accepted") accepted += 1;

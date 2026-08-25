@@ -17,6 +17,11 @@ class UnauthorizedError(AppError):
         super().__init__("unauthorized", message, 401)
 
 
+class ForbiddenError(AppError):
+    def __init__(self, message: str = "Você não possui permissão para esta operação.") -> None:
+        super().__init__("forbidden", message, 403)
+
+
 class NotFoundError(AppError):
     def __init__(self, message: str = "Recurso não encontrado.") -> None:
         super().__init__("not_found", message, 404)

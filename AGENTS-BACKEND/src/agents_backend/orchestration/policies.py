@@ -15,6 +15,7 @@ INTENT_CAPABILITIES: dict[OrchestrationIntent, tuple[str, ...]] = {
         "integration_connection",
         "integration_read",
         "integration_execute",
+        "invite_management",
     ),
     OrchestrationIntent.EXTERNAL_COMMUNICATION: (
         "memory_read",
@@ -69,7 +70,12 @@ CAPABILITY_TOOLS: dict[str, tuple[str, ...]] = {
     "integration_read": (),
     "integration_draft": (),
     "integration_execute": ("confirm_action", "cancel_action", "get_pending_action"),
-    "invite_management": (),
+    "invite_management": (
+        "create_user_invite",
+        "list_user_invites",
+        "revoke_user_invite",
+        "get_my_account",
+    ),
 }
 
 

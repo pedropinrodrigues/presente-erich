@@ -2,15 +2,15 @@
 
 ## Estado
 
-Este documento especifica a próxima implementação. O fluxo de convites ainda não está disponível no
-bot. O webhook, o vínculo individual do Telegram, o agente, as tools e a outbox já existem e serão
-reutilizados.
+Implementado no backend e no webhook em 24/08/2026. A migração `20260824_0009` está aplicada no
+Supabase. A ativação pública depende da publicação da Edge Function e da nova revisão da API e do
+worker.
 
 ## Objetivo
 
-Permitir que qualquer usuário ativo convide outra pessoa por um link do Telegram. Ao aceitar o
-convite, a pessoa deixa de ser tratada como convidada e recebe uma **conta completa da aplicação**,
-com identidade, workspace, memória, conversas, pendências e histórico próprios.
+Permitir que o administrador da plataforma convide outra pessoa por um link do Telegram. Ao aceitar
+o convite, a pessoa recebe uma **conta completa da aplicação**, com identidade, workspace, memória,
+conversas, pendências e histórico próprios.
 
 O convite é somente o mecanismo de entrada. Ele não cria acesso ao workspace de quem convidou.
 
@@ -19,7 +19,9 @@ O convite é somente o mecanismo de entrada. Ele não cria acesso ao workspace d
 - Cada pessoa possui uma conta interna da aplicação.
 - Cada conta possui um workspace pessoal e o papel único `owner`.
 - O convidante não pode consultar, alterar ou excluir os dados da conta criada pelo convidado.
-- Toda conta ativa pode gerar novos convites.
+- Inicialmente, somente um administrador humano explícito da plataforma pode gerar convites.
+- Pedro é o administrador inicial, identificado por seu `app_users.id` configurado no ambiente.
+- O backend aplica a autorização; Luna, Terra e qualquer outro modelo não podem conceder o papel.
 - Não haverá cota diária ou mensal de mensagens.
 - Não haverá cota de tokens, tools, memória, convites ou tempo de uso por conta.
 - Não haverá plano especial ou permissões reduzidas para contas originadas por convite.
@@ -35,7 +37,7 @@ agente. Esses controles evitam replay e falhas técnicas; não constituem quotas
 
 ### Criação do convite
 
-O usuário pode usar o atalho determinístico:
+O administrador pode usar o atalho determinístico:
 
 ```text
 /convidar
@@ -47,8 +49,12 @@ Ou pedir em linguagem natural:
 Convide uma pessoa para usar o bot.
 ```
 
-Ambos chamam o mesmo caso de uso interno. O comando não precisa acionar um modelo e, portanto, deve
-ser a opção preferencial para o caminho rápido.
+Ambos chamam o mesmo caso de uso interno e passam pela mesma autorização. O comando não precisa
+acionar um modelo e, portanto, deve ser a opção preferencial para o caminho rápido.
+
+Uma conta comum que tentar criar um convite recebe uma negativa determinística. Ela continua sendo
+uma conta completa para memória, conversas, integrações e automações; apenas a administração de
+cadastros permanece centralizada.
 
 O bot responde:
 
@@ -353,8 +359,8 @@ Saída:
 }
 ```
 
-Não exige confirmação em segundo turno porque não altera dados do convidado e não compartilha o
-workspace do criador.
+Exige que o usuário seja um administrador ativo da plataforma. Não exige confirmação em segundo
+turno porque não altera dados do convidado e não compartilha o workspace do criador.
 
 ### `ListTelegramInvites`
 
@@ -363,8 +369,9 @@ dados da pessoa que aceitou.
 
 ### `RevokeTelegramInvite`
 
-Só revoga convite `pending` criado pelo próprio usuário. Após o aceite, o convidante não pode
-desativar a conta criada, pois ela pertence integralmente à outra pessoa.
+Só revoga convite `pending`. Um administrador pode revogar qualquer convite pendente; uma futura
+política descentralizada poderá limitar contas comuns aos próprios convites. Após o aceite, nem o
+administrador nem o convidante podem desativar a conta criada por meio do convite.
 
 ### Atalhos do bot
 
@@ -426,7 +433,9 @@ calling e timeout. Falha de provedor deve produzir retry observável, nunca cons
 - O convite não contém IDs internos.
 - Tools recebem o `RequestContext` resolvido pelo canal.
 - Toda consulta continua filtrada por `workspace_id`.
-- O convidante pode revogar somente convites ainda pendentes.
+- O administrador pode revogar somente convites ainda pendentes.
+- O papel de administrador vem de `platform_admins` e da allowlist de bootstrap
+  `PLATFORM_ADMIN_USER_IDS`; ele nunca é inferido por um modelo.
 - Uma conta aceita não fica subordinada ao convidante.
 - Auditoria registra criação, aceite e revogação sem conteúdo de mensagens.
 
@@ -458,9 +467,9 @@ Não registrar:
 - username como identificador de autoridade;
 - dados do convidado nos logs do convidante.
 
-## Plano de implementação
+## Implementação
 
-### Etapa 1 — identidade interna e migration
+### Etapa 1 — identidade interna e migration — concluída
 
 - Criar `app_users`, `user_identities` e `channel_invites`.
 - Fazer backfill dos usuários e canais atuais preservando UUIDs.
@@ -469,9 +478,9 @@ Não registrar:
 
 **Gate:** usuário existente mantém acesso ao mesmo workspace e nenhum dado muda de proprietário.
 
-### Etapa 2 — domínio de convites
+### Etapa 2 — domínio e administração de convites — concluída
 
-- Implementar criação, listagem e revogação.
+- Implementar criação, listagem e revogação autorizadas por `platform_admins`.
 - Gerar token forte e persistir somente o hash.
 - Criar serializadores seguros.
 - Registrar auditoria.
@@ -479,7 +488,7 @@ Não registrar:
 **Gate:** token não aparece no banco após a resposta de criação; outro workspace não consegue listar
 ou revogar o convite.
 
-### Etapa 3 — aceite transacional
+### Etapa 3 — aceite transacional — concluída
 
 - Criar a RPC `accept_telegram_invite`.
 - Implementar criação da conta, identidade, workspace e canal na mesma transação.
@@ -488,7 +497,7 @@ ou revogar o convite.
 **Gate:** duas tentativas concorrentes nunca criam duas contas nem dois workspaces para a mesma
 identidade Telegram.
 
-### Etapa 4 — onboarding no webhook
+### Etapa 4 — onboarding no webhook — concluída no código
 
 - Reconhecer o payload `invite_`.
 - Chamar a RPC e mapear códigos seguros.
@@ -498,7 +507,7 @@ identidade Telegram.
 **Gate:** o token não chega ao agente nem a `channel_messages`; após o aceite, a primeira mensagem
 normal cria uma única conversa.
 
-### Etapa 5 — commands, tools e rotas
+### Etapa 5 — commands, tools e rotas — concluída no código
 
 - Adicionar `/convidar`, `/convites`, `/revogar` e `/minhaconta`.
 - Registrar tools equivalentes no catálogo.
@@ -508,7 +517,7 @@ normal cria uma única conversa.
 **Gate:** comandos administrativos não chamam o modelo; pedidos em linguagem natural selecionam a
 tool correta e respeitam o workspace.
 
-### Etapa 6 — conta e exclusão
+### Etapa 6 — conta e exclusão — parcial
 
 - Implementar visualização e alteração de perfil.
 - Implementar exclusão de conta com confirmação R2.
@@ -518,7 +527,7 @@ tool correta e respeitam o workspace.
 **Gate:** o convidante não consegue excluir a conta aceita; somente o próprio usuário autenticado
 pode iniciar e confirmar a exclusão.
 
-### Etapa 7 — publicação e piloto
+### Etapa 7 — publicação e piloto — em andamento
 
 - Aplicar migration no Supabase.
 - Publicar a nova Edge Function.
@@ -561,7 +570,7 @@ aparece na conta nova.
 - primeira mensagem normal passa por agente e outbox;
 - mensagem repetida não executa o agente duas vezes;
 - `/convites` reflete aceite e revogação;
-- conta criada pode gerar seus próprios convites sem diferença de capacidade.
+- conta criada não pode gerar convites enquanto a política for `admin_only`.
 
 ## Critérios de aceite
 
@@ -575,6 +584,7 @@ aparece na conta nova.
 8. A conta convidada tem as mesmas capacidades de qualquer outra conta.
 9. Não existe quota local de mensagens, convites, tokens, tools ou duração de uso.
 10. Somente o dono da própria conta pode alterá-la ou excluí-la.
+11. Somente um administrador explícito pode criar convites enquanto a política for `admin_only`.
 
 ## Mapa esperado de arquivos
 

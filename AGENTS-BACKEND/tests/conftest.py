@@ -8,7 +8,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from agents_backend.auth import Identity, RequestContext
-from agents_backend.models import Base, Workspace
+from agents_backend.models import AppUser, Base, Workspace
 
 
 @pytest_asyncio.fixture
@@ -25,6 +25,7 @@ async def session() -> AsyncIterator[AsyncSession]:
 @pytest_asyncio.fixture
 async def context(session: AsyncSession) -> RequestContext:
     user_id = uuid.uuid4()
+    session.add(AppUser(id=user_id, status="active"))
     workspace = Workspace(owner_user_id=user_id)
     session.add(workspace)
     await session.commit()

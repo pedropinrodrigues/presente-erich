@@ -1,5 +1,7 @@
 import {
+  extractTelegramInviteToken,
   extractTelegramVerificationCode,
+  isTelegramStartCommand,
   parseTelegramUpdate,
   secureTextEquals,
 } from "./core.ts";
@@ -23,6 +25,20 @@ Deno.test("parses a private Telegram text message", () => {
   assert(messages[0].chatId === "123456789", "chat id");
   assert(messages[0].externalMessageId === "123456789:42", "message id");
   assert(messages[0].text === "Olá", "trimmed text");
+});
+
+Deno.test("extracts invitation payload without treating arbitrary text as an invite", () => {
+  assert(
+    extractTelegramInviteToken("/start invite_abc_DEF-123") === "abc_DEF-123",
+    "invite token",
+  );
+  assert(
+    extractTelegramInviteToken("/start@test_bot invite_token") === "token",
+    "addressed invite",
+  );
+  assert(extractTelegramInviteToken("/start binding-code") === null, "binding");
+  assert(extractTelegramInviteToken("hello invite_token") === null, "plain text");
+  assert(isTelegramStartCommand("/start"), "plain start");
 });
 
 Deno.test("ignores groups, bots and non-text messages", () => {

@@ -33,7 +33,7 @@ from .tools import ToolRegistry, delegation_tool_specs, fast_tool_specs
 
 logger = logging.getLogger(__name__)
 
-CONVERSATION_PROMPT_VERSION = "conversation-router-2026-08-23-v7"
+CONVERSATION_PROMPT_VERSION = "conversation-router-2026-08-24-v8"
 
 ROUTING_INSTRUCTIONS = """
 Você é Luna, a interface conversacional rápida. Sua primeira responsabilidade é compreender a
@@ -54,10 +54,13 @@ Capacidades delegadas atualmente disponíveis:
 - consultar histórico do WhatsApp Business conectado;
 - criar rascunho de email e, com confirmação posterior, enviar email/mensagem ou alterar eventos.
 - criar, listar, alterar, pausar, retomar, remover e executar rotinas pontuais ou recorrentes.
+- criar, listar e revogar convites de conta quando a política administrativa permitir.
 
 Regras obrigatórias:
 - Salvar, corrigir, contestar, apagar, confirmar/cancelar ação, automatizar, comunicar ou
   administrar usa delegate.
+- Pedidos em linguagem natural para criar, listar ou revogar convites usam delegate com
+  invite_management. Os comandos /convidar, /convites e /revogar são tratados antes do modelo.
 - Nunca responda que não há acesso a Gmail, Calendar ou WhatsApp apenas com conhecimento próprio.
   Perguntas sobre conexão/acesso usam delegate com account_management para verificação real.
 - Ler, buscar, abrir ou resumir emails usa delegate com external_communication, mesmo quando a

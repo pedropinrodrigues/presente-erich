@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from agents_backend.api.invitation_routes import router as invitation_router
 from agents_backend.api.routes import router
 from agents_backend.api.telegram_routes import router as telegram_router
 from agents_backend.api.whatsapp_routes import router as whatsapp_router
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
         )
 
     application.include_router(router)
+    application.include_router(invitation_router)
     application.include_router(telegram_router)
     application.include_router(whatsapp_router)
     return application

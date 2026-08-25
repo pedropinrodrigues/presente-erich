@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -118,6 +119,14 @@ class Settings(BaseSettings):
     pending_action_ttl_seconds: int = Field(
         default=600, alias="PENDING_ACTION_TTL_SECONDS", ge=60, le=3600
     )
+    registration_mode: Literal["invite_only"] = Field(
+        default="invite_only", alias="REGISTRATION_MODE"
+    )
+    invitation_policy: Literal["admin_only", "all_active_users"] = Field(
+        default="admin_only", alias="INVITATION_POLICY"
+    )
+    invite_ttl_hours: int = Field(default=24, alias="INVITE_TTL_HOURS", ge=1, le=168)
+    platform_admin_user_ids: str = Field(default="", alias="PLATFORM_ADMIN_USER_IDS")
     messaging_provider: Literal["telegram", "meta_whatsapp"] = Field(
         default="telegram", alias="MESSAGING_PROVIDER"
     )
@@ -164,6 +173,14 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_telegram_bot_username(cls, value: str | None) -> str | None:
         return value.lstrip("@") if value else None
+
+    @field_validator("platform_admin_user_ids")
+    @classmethod
+    def validate_platform_admin_user_ids(cls, value: str) -> str:
+        for candidate in (item.strip() for item in value.split(",")):
+            if candidate:
+                uuid.UUID(candidate)
+        return value
 
     @field_validator("app_timezone")
     @classmethod
@@ -218,6 +235,11 @@ class Settings(BaseSettings):
     @property
     def supabase_jwks_url(self) -> str:
         return f"{self.supabase_issuer}/.well-known/jwks.json"
+
+    @property
+    def configured_platform_admin_ids(self) -> frozenset[uuid.UUID]:
+        values = [value.strip() for value in self.platform_admin_user_ids.split(",")]
+        return frozenset(uuid.UUID(value) for value in values if value)
 
 
 @lru_cache

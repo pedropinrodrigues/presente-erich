@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_backend.config import get_settings
 from agents_backend.errors import UnauthorizedError
-from agents_backend.models import Workspace
+from agents_backend.models import AppUser, PlatformAdmin, UserIdentity, Workspace
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,16 +55,57 @@ async def authenticate_token(token: str) -> Identity:
 
 
 async def resolve_workspace(session: AsyncSession, identity: Identity) -> RequestContext:
+    external_subject = str(identity.user_id)
+    internal_user_id = await session.scalar(
+        select(UserIdentity.user_id).where(
+            UserIdentity.provider == "supabase",
+            UserIdentity.provider_subject == external_subject,
+        )
+    )
+    if internal_user_id is None:
+        await session.execute(
+            insert(AppUser)
+            .values(id=identity.user_id, status="active")
+            .on_conflict_do_nothing(index_elements=[AppUser.id])
+        )
+        await session.execute(
+            insert(UserIdentity)
+            .values(
+                id=uuid.uuid4(),
+                user_id=identity.user_id,
+                provider="supabase",
+                provider_subject=external_subject,
+                identity_metadata={"email": identity.email} if identity.email else {},
+            )
+            .on_conflict_do_nothing(
+                index_elements=[UserIdentity.provider, UserIdentity.provider_subject]
+            )
+        )
+        await session.commit()
+        internal_user_id = await session.scalar(
+            select(UserIdentity.user_id).where(
+                UserIdentity.provider == "supabase",
+                UserIdentity.provider_subject == external_subject,
+            )
+        )
+    if internal_user_id is None:
+        raise RuntimeError("Não foi possível resolver a identidade interna")
+    internal_identity = Identity(user_id=internal_user_id, email=identity.email)
+    settings = get_settings()
+    admin = await session.get(PlatformAdmin, internal_user_id)
+    if admin is None and internal_user_id in settings.configured_platform_admin_ids:
+        session.add(PlatformAdmin(user_id=internal_user_id, status="active", permissions=["*"]))
+        await session.commit()
     statement = (
         insert(Workspace)
-        .values(id=uuid.uuid4(), owner_user_id=identity.user_id)
+        .values(id=uuid.uuid4(), owner_user_id=internal_user_id)
         .on_conflict_do_nothing(index_elements=[Workspace.owner_user_id])
     )
     await session.execute(statement)
     await session.commit()
     workspace_id = await session.scalar(
-        select(Workspace.id).where(Workspace.owner_user_id == identity.user_id)
+        select(Workspace.id).where(Workspace.owner_user_id == internal_user_id)
     )
     if workspace_id is None:
         raise RuntimeError("Não foi possível resolver o workspace pessoal")
-    return RequestContext(identity=identity, workspace_id=workspace_id)
+    return RequestContext(identity=internal_identity, workspace_id=workspace_id)

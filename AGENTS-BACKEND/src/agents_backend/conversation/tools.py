@@ -20,6 +20,12 @@ from agents_backend.auth import RequestContext
 from agents_backend.config import Settings, get_settings
 from agents_backend.errors import AppError, NotFoundError
 from agents_backend.ingestion.service import ingest_transcript
+from agents_backend.invitations.service import (
+    create_telegram_invite,
+    get_my_account,
+    list_telegram_invites,
+    revoke_telegram_invite,
+)
 from agents_backend.memory.mutations import correct_memory, delete_memory_target, delete_source
 from agents_backend.models import (
     AgentRun,
@@ -128,6 +134,22 @@ class DelegateToOrchestratorArguments(ToolArguments):
     confidence: float = Field(ge=0, le=1)
 
 
+class CreateUserInviteArguments(ToolArguments):
+    pass
+
+
+class ListUserInvitesArguments(ToolArguments):
+    pass
+
+
+class RevokeUserInviteArguments(ToolArguments):
+    invite_id: uuid.UUID
+
+
+class GetMyAccountArguments(ToolArguments):
+    pass
+
+
 class ToolEnvelope(BaseModel):
     ok: bool
     code: str
@@ -219,6 +241,86 @@ def _success(
 
 def _failure(code: str, message: str, *, retryable: bool = False) -> ToolEnvelope:
     return ToolEnvelope(ok=False, code=code, message=message, retryable=retryable)
+
+
+async def _create_user_invite(
+    context: ToolContext, _: CreateUserInviteArguments
+) -> ToolEnvelope:
+    if context.orchestration_task is None:
+        return _failure(
+            "invite_requires_orchestration",
+            "Crie o convite pelo Telegram ou por uma tarefa orquestrada.",
+        )
+    invite = await create_telegram_invite(
+        context.session,
+        context.request_context,
+        context.settings,
+    )
+    secure_text = (
+        "Convite criado.\n\n"
+        "Quem abrir este link receberá uma conta pessoal separada da sua. "
+        f"O convite pode ser usado uma vez e expira em {context.settings.invite_ttl_hours} horas."
+        f"\n\n{invite.deep_link}"
+    )
+    routing_context = dict(context.orchestration_task.routing_context)
+    routing_context["secure_result_text"] = secure_text
+    context.orchestration_task.routing_context = routing_context
+    return _success(
+        "invite_created",
+        "Convite criado; o link será entregue diretamente pelo backend.",
+        {
+            "invite_id": str(invite.invite_id),
+            "expires_at": invite.expires_at.isoformat(),
+            "status": invite.status,
+            "secure_delivery": True,
+        },
+    )
+
+
+async def _list_user_invites(
+    context: ToolContext, _: ListUserInvitesArguments
+) -> ToolEnvelope:
+    invites = await list_telegram_invites(
+        context.session,
+        context.request_context,
+        settings=context.settings,
+    )
+    return _success(
+        "invites_listed",
+        f"Encontrei {len(invites)} convite(s).",
+        [invite.model_dump(mode="json") for invite in invites],
+    )
+
+
+async def _revoke_user_invite(
+    context: ToolContext, arguments: RevokeUserInviteArguments
+) -> ToolEnvelope:
+    invite = await revoke_telegram_invite(
+        context.session,
+        context.request_context,
+        arguments.invite_id,
+        context.settings,
+    )
+    return _success(
+        "invite_revoked",
+        "Convite revogado.",
+        invite.model_dump(mode="json"),
+    )
+
+
+async def _get_my_account(
+    context: ToolContext, _: GetMyAccountArguments
+) -> ToolEnvelope:
+    account = await get_my_account(
+        context.session,
+        context.request_context,
+        context.settings,
+    )
+    return _success(
+        "account_found",
+        "Conta localizada.",
+        account.model_dump(mode="json"),
+    )
 
 
 async def _search_memory(context: ToolContext, arguments: SearchMemoryArguments) -> ToolEnvelope:
@@ -914,6 +1016,34 @@ def default_tool_specs() -> list[ToolSpec]:
             DelegateToOrchestratorArguments,
             "R0",
             _delegate_to_orchestrator,
+        ),
+        ToolSpec(
+            "create_user_invite",
+            "Cria convite de uso único para uma nova conta pessoal, se o usuário for autorizado.",
+            CreateUserInviteArguments,
+            "R1",
+            _create_user_invite,
+        ),
+        ToolSpec(
+            "list_user_invites",
+            "Lista os convites criados pelo usuário e seus estados.",
+            ListUserInvitesArguments,
+            "R0",
+            _list_user_invites,
+        ),
+        ToolSpec(
+            "revoke_user_invite",
+            "Revoga um convite pendente pelo ID; não afeta contas já criadas.",
+            RevokeUserInviteArguments,
+            "R1",
+            _revoke_user_invite,
+        ),
+        ToolSpec(
+            "get_my_account",
+            "Mostra a conta interna e se o próprio usuário é administrador da plataforma.",
+            GetMyAccountArguments,
+            "R0",
+            _get_my_account,
         ),
     ]
 

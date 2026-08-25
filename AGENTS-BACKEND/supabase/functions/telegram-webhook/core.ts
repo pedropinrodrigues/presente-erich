@@ -6,6 +6,8 @@ export type TelegramInboundText = {
   externalMessageId: string;
   text: string;
   timestamp: string | null;
+  firstName: string | null;
+  languageCode: string | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -34,7 +36,29 @@ export function parseTelegramUpdate(payload: unknown): TelegramInboundText[] {
     externalMessageId: `${chatId}:${messageId}`,
     text,
     timestamp: message.date == null ? null : String(message.date),
+    firstName: sender.first_name == null ? null : String(sender.first_name),
+    languageCode: sender.language_code == null
+      ? null
+      : String(sender.language_code),
   }];
+}
+
+export function extractTelegramInviteToken(text: string): string | null {
+  const parts = text.trim().split(/\s+/, 2);
+  if (parts.length !== 2) return null;
+  const command = parts[0].split("@", 1)[0].toLocaleLowerCase("pt-BR");
+  const payload = parts[1];
+  if (command !== "/start" || !payload.startsWith("invite_")) return null;
+  const token = payload.slice("invite_".length);
+  return token && token.length <= 100 && /^[A-Za-z0-9_-]+$/.test(token)
+    ? token
+    : null;
+}
+
+export function isTelegramStartCommand(text: string): boolean {
+  const command = text.trim().split(/\s+/, 1)[0].split("@", 1)[0]
+    .toLocaleLowerCase("pt-BR");
+  return command === "/start";
 }
 
 export function extractTelegramVerificationCode(text: string): string | null {

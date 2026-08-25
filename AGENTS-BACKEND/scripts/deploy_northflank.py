@@ -7,17 +7,28 @@ import shutil
 import subprocess
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import httpx
 from dotenv import dotenv_values
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 
+from agents_backend.config import get_settings
 from agents_backend.conversation.service import ConversationService
 from agents_backend.db import get_session_factory
-from agents_backend.models import ChannelAccount, ChannelMessage, WorkerHeartbeat
+from agents_backend.invitations.service import is_platform_admin
+from agents_backend.models import (
+    AppUser,
+    ChannelAccount,
+    ChannelInvite,
+    ChannelMessage,
+    PlatformAdmin,
+    UserIdentity,
+    WorkerHeartbeat,
+    Workspace,
+)
 from agents_backend.worker.health import _queue_snapshot
 
 PROJECT_ID = "presente-erich"
@@ -323,6 +334,145 @@ async def _telegram_summary() -> dict[str, Any]:
         }
 
 
+async def _telegram_account_summary() -> dict[str, Any]:
+    async with get_session_factory()() as session:
+        accounts = list(
+            (
+                await session.scalars(
+                    select(ChannelAccount)
+                    .where(
+                        ChannelAccount.provider == "telegram",
+                        ChannelAccount.active.is_(True),
+                    )
+                    .order_by(ChannelAccount.created_at)
+                )
+            ).all()
+        )
+        return {
+            "accounts": [
+                {
+                    "user_id": str(account.user_id),
+                    "workspace_id": str(account.workspace_id),
+                    "display_name": account.display_name,
+                    "verified_at": (
+                        account.verified_at.isoformat() if account.verified_at else None
+                    ),
+                }
+                for account in accounts
+            ]
+        }
+
+
+async def _invitation_summary() -> dict[str, Any]:
+    settings = get_settings()
+    configured_admins = settings.configured_platform_admin_ids
+    async with get_session_factory()() as session:
+        missing_admin_users: list[str] = []
+        for user_id in configured_admins:
+            if await session.get(AppUser, user_id) is None:
+                missing_admin_users.append(str(user_id))
+                continue
+            await is_platform_admin(session, user_id, settings)
+        await session.commit()
+        rpc_result = (
+            await session.execute(
+                text(
+                    """
+                    SELECT result_code
+                    FROM public.accept_telegram_invite(
+                        :token_hash, :chat_id, :telegram_user_id, CAST(:metadata AS jsonb)
+                    )
+                    """
+                ),
+                {
+                    "token_hash": "0" * 64,
+                    "chat_id": "invitation-health-check",
+                    "telegram_user_id": "invitation-health-check",
+                    "metadata": "{}",
+                },
+            )
+        ).scalar_one()
+        return {
+            "registration_mode": settings.registration_mode,
+            "invitation_policy": settings.invitation_policy,
+            "configured_admins": len(configured_admins),
+            "active_admins": await session.scalar(
+                select(func.count(PlatformAdmin.user_id)).where(
+                    PlatformAdmin.status == "active"
+                )
+            ),
+            "missing_admin_users": missing_admin_users,
+            "app_users": await session.scalar(select(func.count(AppUser.id))),
+            "user_identities": await session.scalar(select(func.count(UserIdentity.id))),
+            "invites": await session.scalar(select(func.count(ChannelInvite.id))),
+            "accept_rpc_probe": rpc_result,
+        }
+
+
+async def _invitation_rpc_canary() -> dict[str, Any]:
+    settings = get_settings()
+    admin_id = next(iter(settings.configured_platform_admin_ids), None)
+    if admin_id is None:
+        raise RuntimeError("Nenhum administrador está configurado")
+    async with get_session_factory()() as session:
+        workspace_id = await session.scalar(
+            select(Workspace.id).where(Workspace.owner_user_id == admin_id)
+        )
+        if workspace_id is None:
+            raise RuntimeError("O administrador configurado não possui workspace")
+        token_hash = uuid.uuid4().hex + uuid.uuid4().hex
+        telegram_id = f"invitation-rpc-canary-{uuid.uuid4()}"
+        invite = ChannelInvite(
+            created_by_user_id=admin_id,
+            created_by_workspace_id=workspace_id,
+            token_hash=token_hash,
+            purpose="personal_account",
+            status="pending",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+        session.add(invite)
+        await session.flush()
+
+        async def accept(subject: str) -> str:
+            return (
+                await session.execute(
+                    text(
+                        """
+                        SELECT result_code
+                        FROM public.accept_telegram_invite(
+                            :token_hash, :chat_id, :telegram_user_id, CAST(:metadata AS jsonb)
+                        )
+                        """
+                    ),
+                    {
+                        "token_hash": token_hash,
+                        "chat_id": subject,
+                        "telegram_user_id": subject,
+                        "metadata": '{"first_name":"Canary","language_code":"pt-BR"}',
+                    },
+                )
+            ).scalar_one()
+
+        try:
+            created = await accept(telegram_id)
+            replayed = await accept(telegram_id)
+            rejected_reuse = await accept(f"{telegram_id}-other")
+        finally:
+            await session.rollback()
+        if (created != "created"):
+            raise RuntimeError(f"Aceite inicial inesperado: {created}")
+        if replayed != "already_accepted_by_same_identity":
+            raise RuntimeError(f"Replay inesperado: {replayed}")
+        if rejected_reuse != "unavailable":
+            raise RuntimeError(f"Reuso por outra identidade inesperado: {rejected_reuse}")
+        return {
+            "created": created,
+            "same_identity_replay": replayed,
+            "different_identity_reuse": rejected_reuse,
+            "persisted": False,
+        }
+
+
 async def _enqueue_telegram_canary(text: str) -> dict[str, Any]:
     async with get_session_factory()() as session:
         account = await session.scalar(
@@ -404,6 +554,9 @@ def main() -> None:
             "smoke-api",
             "database-health",
             "telegram-health",
+            "telegram-accounts",
+            "invitation-health",
+            "invitation-rpc-canary",
             "telegram-canary",
             "scheduler-canary",
         ],
@@ -428,6 +581,12 @@ def main() -> None:
         print(json.dumps(asyncio.run(_database_summary()), indent=2, ensure_ascii=False))
     elif args.command == "telegram-health":
         print(json.dumps(asyncio.run(_telegram_summary()), indent=2, ensure_ascii=False))
+    elif args.command == "telegram-accounts":
+        print(json.dumps(asyncio.run(_telegram_account_summary()), indent=2, ensure_ascii=False))
+    elif args.command == "invitation-health":
+        print(json.dumps(asyncio.run(_invitation_summary()), indent=2, ensure_ascii=False))
+    elif args.command == "invitation-rpc-canary":
+        print(json.dumps(asyncio.run(_invitation_rpc_canary()), indent=2, ensure_ascii=False))
     elif args.command == "telegram-canary":
         print(
             json.dumps(

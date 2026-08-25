@@ -32,6 +32,7 @@ from .phone_numbers import whatsapp_phone_aliases
 from .providers import API_PROVIDER, TELEGRAM_PROVIDER, WHATSAPP_PROVIDER
 from .router import route_command
 from .runtime import ConversationAgent, ConversationAgentResult
+from .telegram_commands import handle_account_command
 
 
 def _pending_response(action: PendingAction | None) -> PendingActionResponse | None:
@@ -241,8 +242,18 @@ class ConversationService:
             ) from None
 
         inbound_id = inbound.id
-        command = route_command(inbound.content)
-        if command is not None:
+        account_command = await handle_account_command(
+            session, context, inbound.content, self.settings
+        )
+        command = route_command(inbound.content) if account_command is None else None
+        if account_command is not None:
+            result = ConversationAgentResult(
+                answer=account_command,
+                run_id=uuid.UUID(int=0),
+                tools_used=[],
+                pending_action=None,
+            )
+        elif command is not None:
             result = ConversationAgentResult(
                 answer=command.answer,
                 run_id=uuid.UUID(int=0),
@@ -457,8 +468,18 @@ class ConversationService:
             identity=Identity(user_id=conversation.user_id),
             workspace_id=conversation.workspace_id,
         )
-        command = route_command(inbound.content)
-        if command is not None:
+        account_command = await handle_account_command(
+            session, context, inbound.content, self.settings
+        )
+        command = route_command(inbound.content) if account_command is None else None
+        if account_command is not None:
+            result = ConversationAgentResult(
+                answer=account_command,
+                run_id=uuid.UUID(int=0),
+                tools_used=[],
+                pending_action=None,
+            )
+        elif command is not None:
             result = ConversationAgentResult(
                 answer=command.answer,
                 run_id=uuid.UUID(int=0),

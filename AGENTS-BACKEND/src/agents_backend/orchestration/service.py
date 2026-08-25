@@ -164,7 +164,9 @@ class OrchestrationService:
         inbound = await session.get(ChannelMessage, task.inbound_message_id)
         if conversation is None or inbound is None:
             raise RuntimeError("Conversa da tarefa não encontrada")
-        outbound_text = format_channel_text(conversation.provider, answer)
+        secure_result = task.routing_context.get("secure_result_text")
+        selected_answer = str(secure_result) if secure_result else answer
+        outbound_text = format_channel_text(conversation.provider, selected_answer)
         outbound = ChannelMessage(
             workspace_id=task.workspace_id,
             conversation_id=task.conversation_id,
