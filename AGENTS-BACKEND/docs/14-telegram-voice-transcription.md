@@ -11,7 +11,7 @@ de mídia. A transcrição usa o modelo pré-gravado `universal-2` da AssemblyAI
 ```text
 Telegram voice
   → Supabase Edge Function valida e persiste metadados
-  → channel_messages: transcription_pending
+  → channel_messages: transcribing
   → audio_transcription_jobs: upload
   → worker baixa o arquivo pela Bot API
   → AssemblyAI: upload → submit universal-2 → poll
@@ -26,7 +26,7 @@ de `stage` (`upload`, `submit` ou `poll`). O identificador externo da mensagem e
 
 ## Ordenação e experiência
 
-Enquanto houver um áudio anterior em `transcription_pending`, mensagens posteriores da mesma
+Enquanto houver um áudio anterior em `transcribing`, mensagens posteriores da mesma
 conversa não são reivindicadas pelo agente. O worker envia `typing` ao iniciar o download. Ao final,
 a resposta usa o mesmo fluxo de texto; não há uma mensagem intermediária fixa.
 

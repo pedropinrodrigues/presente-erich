@@ -30,6 +30,17 @@ function jsonResponse(status: number, body: Record<string, unknown>): Response {
   });
 }
 
+function safeErrorDetail(error: unknown): string {
+  if (error instanceof Error) return error.message.slice(0, 300);
+  if (typeof error === "object" && error !== null) {
+    const value = error as Record<string, unknown>;
+    const code = typeof value.code === "string" ? value.code : "unknown";
+    const message = typeof value.message === "string" ? value.message : "request failed";
+    return `${code}: ${message}`.slice(0, 300);
+  }
+  return "unknown error";
+}
+
 function requiredEnvironment(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
@@ -200,7 +211,7 @@ async function ingestMessage(
     external_message_id: message.externalMessageId,
     direction: "inbound",
     content: message.text,
-    status: message.voice ? "transcription_pending" : "received",
+    status: message.voice ? "transcribing" : "received",
     attempts: 0,
     max_attempts: 3,
     available_at: now,
@@ -367,10 +378,11 @@ Deno.serve(async (request) => {
     if (request.method === "POST") return await handleWebhook(request);
     return jsonResponse(405, { error: "method_not_allowed" });
   } catch (error) {
-    console.error(
-      "telegram_webhook_failed",
-      error instanceof Error ? error.message : String(error),
-    );
-    return jsonResponse(500, { error: "telegram_webhook_unavailable" });
+    const detail = safeErrorDetail(error);
+    console.error("telegram_webhook_failed", detail);
+    return jsonResponse(500, {
+      error: "telegram_webhook_unavailable",
+      detail,
+    });
   }
 });

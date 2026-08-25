@@ -156,7 +156,7 @@ async def test_telegram_binding_and_ingestion_are_idempotent(
     assert await ingest_telegram_update(session, voice_payload, service) == (1, 0)
     assert await ingest_telegram_update(session, voice_payload, service) == (1, 1)
     audio_message = await session.scalar(
-        select(ChannelMessage).where(ChannelMessage.status == "transcription_pending")
+        select(ChannelMessage).where(ChannelMessage.status == "transcribing")
     )
     assert audio_message is not None
     assert audio_message.content == ""

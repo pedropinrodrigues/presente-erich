@@ -44,7 +44,7 @@ async def claim_channel_message(
                 earlier_inbound.conversation_id == ChannelMessage.conversation_id,
                 earlier_inbound.direction == "inbound",
                 earlier_inbound.status.in_(
-                    ["transcription_pending", "received", "retrying", "processing"]
+                    ["transcribing", "received", "retrying", "processing"]
                 ),
                 earlier_inbound.created_at < ChannelMessage.created_at,
             )

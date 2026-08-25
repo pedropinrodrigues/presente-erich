@@ -429,7 +429,7 @@ class ConversationService:
             external_message_id=external_message_id,
             direction="inbound",
             content="",
-            status="transcription_pending",
+            status="transcribing",
             message_metadata={
                 "input_type": "voice",
                 "sender": chat_id,

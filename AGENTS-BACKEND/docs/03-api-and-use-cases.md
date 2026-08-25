@@ -42,7 +42,7 @@ POST   /webhooks/whatsapp
 disponíveis como adaptador inativo e validam o contrato da Meta.
 
 O webhook aceita mensagens privadas de texto e de voz. Voz cria uma mensagem com estado
-`transcription_pending` e um trabalho durável; após a transcrição, a mesma mensagem passa a
+`transcribing` e um trabalho durável; após a transcrição, a mesma mensagem passa a
 `received` e percorre o agente conversacional normalmente. Consulte
 [Voz no Telegram com AssemblyAI](14-telegram-voice-transcription.md).
 
