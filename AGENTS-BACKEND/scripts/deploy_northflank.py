@@ -229,7 +229,7 @@ class NorthflankClient:
         self.request(
             "POST",
             f"/projects/{PROJECT_ID}/services/{service_id}/build",
-            {"bundleUrl": PUBLIC_BUNDLE_URL, "branch": "main", "sha": _git_revision()},
+            {"sha": _git_revision()},
         )
 
 
