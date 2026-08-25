@@ -49,6 +49,24 @@ Deno.test("parses a private Telegram voice message", () => {
   assert(messages[0].voice?.durationSeconds === 12, "voice duration");
 });
 
+Deno.test("parses an attached Telegram audio file", () => {
+  const messages = parseTelegramUpdate({
+    message: {
+      message_id: 44,
+      chat: { id: 123456789, type: "private" },
+      from: { id: 123456789, is_bot: false },
+      audio: {
+        file_id: "audio-file",
+        file_unique_id: "unique-audio",
+        duration: 30,
+        mime_type: "audio/mpeg",
+      },
+    },
+  });
+  assert(messages.length === 1, "one audio message expected");
+  assert(messages[0].voice?.fileId === "audio-file", "audio file id");
+});
+
 Deno.test("extracts invitation payload without treating arbitrary text as an invite", () => {
   assert(
     extractTelegramInviteToken("/start invite_abc_DEF-123") === "abc_DEF-123",

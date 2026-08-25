@@ -65,7 +65,7 @@ def parse_telegram_update(payload: dict[str, Any]) -> list[TelegramInboundMessag
     if chat.get("type") != "private" or sender.get("is_bot") is True:
         return []
     text = str(message.get("text", "")).strip()
-    voice_payload = message.get("voice")
+    voice_payload = message.get("voice") or message.get("audio")
     voice: TelegramInboundVoice | None = None
     if isinstance(voice_payload, dict):
         file_id = str(voice_payload.get("file_id") or "")

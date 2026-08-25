@@ -38,7 +38,7 @@ export function parseTelegramUpdate(payload: unknown): TelegramInboundMessage[] 
   const userId = String(sender.id ?? "");
   const messageId = String(message.message_id ?? "");
   const text = String(message.text ?? "").trim();
-  const rawVoice = asRecord(message.voice);
+  const rawVoice = asRecord(message.voice) ?? asRecord(message.audio);
   const voiceFileId = String(rawVoice?.file_id ?? "");
   const voiceUniqueId = String(rawVoice?.file_unique_id ?? "");
   const voiceDuration = rawVoice?.duration;

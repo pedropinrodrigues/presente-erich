@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Permitir que uma mensagem de voz privada do Telegram seja tratada como uma entrada normal da Luna,
+Permitir que uma mensagem de voz ou arquivo de áudio privado do Telegram seja tratado como uma entrada normal da Luna,
 sem armazenar o arquivo de áudio no banco e sem transformar o agente conversacional em um cliente
 de mídia. A transcrição usa o modelo pré-gravado `universal-2` da AssemblyAI.
 

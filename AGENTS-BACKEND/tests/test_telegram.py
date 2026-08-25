@@ -61,6 +61,14 @@ def telegram_voice_update(*, message_id: int = 3) -> dict[str, object]:
     }
 
 
+def telegram_audio_update(*, message_id: int = 4) -> dict[str, object]:
+    payload = telegram_voice_update(message_id=message_id)
+    message = payload["message"]
+    assert isinstance(message, dict)
+    message["audio"] = message.pop("voice")
+    return payload
+
+
 def test_telegram_secret_parser_and_chunks() -> None:
     settings = conversation_settings(
         TELEGRAM_BOT_TOKEN="bot-token",  # noqa: S106
@@ -79,6 +87,9 @@ def test_telegram_secret_parser_and_chunks() -> None:
     assert voice.voice is not None
     assert voice.voice.file_id == "telegram-file"
     assert voice.voice.duration_seconds == 12
+    audio = parse_telegram_update(telegram_audio_update())[0]
+    assert audio.voice is not None
+    assert audio.voice.file_unique_id == "unique-file"
     assert telegram_text_chunks("a" * 8001) == ["a" * 4000, "a" * 4000, "a"]
 
 
