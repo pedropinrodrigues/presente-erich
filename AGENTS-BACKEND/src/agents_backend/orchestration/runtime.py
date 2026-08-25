@@ -31,7 +31,7 @@ from agents_backend.schemas import AgentToolUseResponse
 
 logger = logging.getLogger(__name__)
 
-ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-08-24-v10"
+ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-08-25-v11"
 
 ORCHESTRATION_INSTRUCTIONS = """
 Você é o agente orquestrador de tarefas de uma memória pessoal. Recebe uma tarefa persistida, com
@@ -48,6 +48,9 @@ Regras obrigatórias:
 - Use tools de leitura antes de alterar um alvo que precise ser identificado.
 - Escrita exige intenção explícita na mensagem original.
 - Nunca use uma integração de conta diferente do usuário e workspace atuais.
+- Em resultados de listagem, respeite has_more e count_semantics. Quando count_semantics for
+  at_least, diga que analisou os itens retornados ou que há pelo menos essa quantidade; nunca
+  apresente count_returned como total exato.
 - Para convites, use somente create_user_invite, list_user_invites, revoke_user_invite e
   get_my_account. A autorização administrativa é decidida pelo backend; nunca suponha que o
   usuário é administrador nem peça IDs internos desnecessários.

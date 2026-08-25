@@ -524,8 +524,10 @@ def _merged_multi_account_read(
     ]
     if policy.name in {"gmail_search_emails", "gmail_get_email"}:
         messages: list[dict[str, Any]] = []
+        provider_has_more = False
         for account, outcome in successful:
             data = outcome.data if isinstance(outcome.data, dict) else {}
+            provider_has_more = provider_has_more or bool(data.get("has_more"))
             raw_messages = data.get("messages")
             if not isinstance(raw_messages, list):
                 continue
@@ -534,6 +536,7 @@ def _merged_multi_account_read(
                     messages.append({**message, "account": _account_data(account)})
         messages.sort(key=lambda item: str(item.get("received_at") or ""), reverse=True)
         limit = int(values.get("max_results") or len(messages) or 1)
+        has_more = provider_has_more or len(messages) > limit
         return _success(
             "external_multi_account_read_completed",
             f"Foram consultadas {len(results)} contas Gmail.",
@@ -543,6 +546,8 @@ def _merged_multi_account_read(
                 "accounts_queried": len(results),
                 "accounts_succeeded": len(successful),
                 "count_returned": len(messages[:limit]),
+                "count_semantics": "at_least" if has_more else "exact",
+                "has_more": has_more,
                 "messages": messages[:limit],
                 "account_errors": account_errors,
             },

@@ -169,6 +169,8 @@ def test_gmail_mcp_result_drops_raw_html_before_agent_context() -> None:
     encoded = json.dumps(result)
 
     assert result["count_returned"] == 10
+    assert result["count_semantics"] == "at_least"
+    assert result["has_more"] is True
     assert result["messages"][0]["subject"] == "Subject 0"
     assert len(result["messages"][0]["text_excerpt"]) <= 1200
     assert "payload" not in encoded
@@ -270,6 +272,95 @@ def test_all_calendars_result_uses_compact_summary_view() -> None:
     assert result["events"][0]["title"] == "Compromisso familiar"
 
 
+def test_all_calendars_result_unwraps_real_composio_event_shape() -> None:
+    raw = {
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "data": {
+                            "calendars_queried": [
+                                {"id": "primary@example.com", "summary": "Principal"}
+                            ],
+                            "events": [
+                                {
+                                    "all_calendar_ids": ["primary@example.com"],
+                                    "source_calendar_id": "primary@example.com",
+                                    "source_calendar_summary": "Principal",
+                                    "event": {
+                                        "id": "event-real-1",
+                                        "summary": "Daily do time",
+                                        "start": {
+                                            "dateTime": "2026-08-24T13:30:00-03:00"
+                                        },
+                                        "end": {
+                                            "dateTime": "2026-08-24T14:00:00-03:00"
+                                        },
+                                        "attendees": [
+                                            {
+                                                "email": "user@example.com",
+                                                "responseStatus": "accepted",
+                                            }
+                                        ],
+                                        "status": "confirmed",
+                                    },
+                                }
+                            ],
+                            "summary_view": [
+                                {
+                                    "calendar": "Principal",
+                                    "event_id": "event-real-1",
+                                    "start": "2026-08-24T13:30:00-03:00",
+                                    "end": "2026-08-24T14:00:00-03:00",
+                                    "title": "Daily do time",
+                                }
+                            ],
+                        },
+                        "successful": True,
+                    }
+                ),
+            }
+        ],
+        "isError": False,
+    }
+
+    result = normalize_mcp_result("GOOGLECALENDAR_EVENTS_LIST_ALL_CALENDARS", raw)
+
+    assert result["count_returned"] == 1
+    assert result["events"][0]["event_id"] == "event-real-1"
+    assert result["events"][0]["title"] == "Daily do time"
+    assert result["events"][0]["calendar"] == "Principal"
+    assert result["events"][0]["attendees"] == [
+        {"email": "user@example.com", "response_status": "accepted"}
+    ]
+
+
+def test_all_calendars_result_drops_empty_wrappers_instead_of_phantom_events() -> None:
+    raw = {
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "data": {
+                            "events": [{"event": {}, "source_calendar_id": "primary"}],
+                            "summary_view": [],
+                        },
+                        "successful": True,
+                    }
+                ),
+            }
+        ],
+        "isError": False,
+    }
+
+    result = normalize_mcp_result("GOOGLECALENDAR_EVENTS_LIST_ALL_CALENDARS", raw)
+
+    assert result["count_returned"] == 0
+    assert result["events"] == []
+
+
 def test_multi_account_gmail_results_are_merged_sorted_and_limited() -> None:
     policy = next(policy for policy in POLICIES if policy.name == "gmail_search_emails")
     personal = ExternalIntegration(
@@ -299,7 +390,10 @@ def test_multi_account_gmail_results_are_merged_sorted_and_limited() -> None:
                 ok=True,
                 code="ok",
                 message="ok",
-                data={"messages": [{"subject": "Antigo", "received_at": "2026-08-20"}]},
+                data={
+                    "messages": [{"subject": "Antigo", "received_at": "2026-08-20"}],
+                    "has_more": False,
+                },
             ),
         ),
         (
@@ -308,7 +402,10 @@ def test_multi_account_gmail_results_are_merged_sorted_and_limited() -> None:
                 ok=True,
                 code="ok",
                 message="ok",
-                data={"messages": [{"subject": "Novo", "received_at": "2026-08-22"}]},
+                data={
+                    "messages": [{"subject": "Novo", "received_at": "2026-08-22"}],
+                    "has_more": False,
+                },
             ),
         ),
     ]
@@ -320,6 +417,8 @@ def test_multi_account_gmail_results_are_merged_sorted_and_limited() -> None:
     assert merged.data["messages"][0]["subject"] == "Novo"
     assert merged.data["messages"][0]["account"]["label"] == "Trabalho"
     assert merged.data["count_returned"] == 1
+    assert merged.data["count_semantics"] == "at_least"
+    assert merged.data["has_more"] is True
 
 
 @pytest.mark.asyncio

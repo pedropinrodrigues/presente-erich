@@ -66,13 +66,18 @@ def _gmail_result(remote_slug: str, decoded: Any) -> dict[str, Any]:
         messages = [_compact_gmail_message(data, excerpt_limit=8000)]
     else:
         messages = []
+    result_size_estimate = data.get("resultSizeEstimate") if isinstance(data, dict) else None
+    has_more = bool(data.get("nextPageToken")) if isinstance(data, dict) else False
+    if isinstance(result_size_estimate, int) and result_size_estimate > len(messages):
+        has_more = True
     return {
         "provider": "gmail",
         "operation": remote_slug,
         "content_scope": "headers, preview and plain-text excerpt; raw HTML omitted",
         "count_returned": len(messages),
-        "result_size_estimate": data.get("resultSizeEstimate") if isinstance(data, dict) else None,
-        "has_more": bool(data.get("nextPageToken")) if isinstance(data, dict) else False,
+        "count_semantics": "at_least" if has_more else "exact",
+        "result_size_estimate": result_size_estimate,
+        "has_more": has_more,
         "messages": messages,
         "successful": root.get("successful", True),
         "error": root.get("error"),
@@ -122,6 +127,43 @@ def _compact_calendar_event(event: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _compact_calendar_summary(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "event_id": str(event.get("event_id") or ""),
+        "title": _plain_excerpt(event.get("title") or "Sem título", 1000),
+        "start": str(event.get("start") or ""),
+        "end": str(event.get("end") or ""),
+        "is_all_day": bool(event.get("is_all_day", False)),
+        "calendar": _plain_excerpt(event.get("calendar"), 500),
+        "link": str(event.get("display_url") or ""),
+    }
+
+
+def _meaningful_calendar_event(event: dict[str, Any]) -> bool:
+    return bool(
+        event.get("event_id")
+        or event.get("start")
+        or event.get("end")
+        or (event.get("title") and event.get("title") != "Sem título")
+    )
+
+
+def _compact_all_calendars_event(value: dict[str, Any]) -> dict[str, Any] | None:
+    nested = value.get("event")
+    if isinstance(nested, dict):
+        event = _compact_calendar_event(nested)
+        if not event.get("calendar"):
+            event["calendar"] = _plain_excerpt(
+                value.get("source_calendar_summary") or value.get("source_calendar_id"),
+                500,
+            )
+    elif "event_id" in value or "title" in value:
+        event = _compact_calendar_summary(value)
+    else:
+        event = _compact_calendar_event(value)
+    return event if _meaningful_calendar_event(event) else None
+
+
 def _calendar_result(remote_slug: str, decoded: Any) -> dict[str, Any]:
     root = decoded if isinstance(decoded, dict) else {}
     data = root.get("data") if isinstance(root.get("data"), dict) else root
@@ -130,23 +172,29 @@ def _calendar_result(remote_slug: str, decoded: Any) -> dict[str, Any]:
     if not isinstance(raw_events, list) and isinstance(data, dict):
         raw_events = data.get("events")
     if isinstance(raw_events, list) and raw_events:
-        events = [_compact_calendar_event(event) for event in raw_events if isinstance(event, dict)]
-    elif isinstance(raw_summary, list):
-        events = [
-            {
-                "event_id": str(event.get("event_id") or ""),
-                "title": _plain_excerpt(event.get("title") or "Sem título", 1000),
-                "start": str(event.get("start") or ""),
-                "end": str(event.get("end") or ""),
-                "is_all_day": bool(event.get("is_all_day", False)),
-                "calendar": _plain_excerpt(event.get("calendar"), 500),
-                "link": str(event.get("display_url") or ""),
-            }
+        if remote_slug == "GOOGLECALENDAR_EVENTS_LIST_ALL_CALENDARS":
+            parsed = [
+                _compact_all_calendars_event(event)
+                for event in raw_events
+                if isinstance(event, dict)
+            ]
+            events = [event for event in parsed if event is not None]
+        else:
+            parsed = [
+                _compact_calendar_event(event)
+                for event in raw_events
+                if isinstance(event, dict)
+            ]
+            events = [event for event in parsed if _meaningful_calendar_event(event)]
+    else:
+        events = []
+    if not events and isinstance(raw_summary, list):
+        parsed_summary = [
+            _compact_calendar_summary(event)
             for event in raw_summary
             if isinstance(event, dict)
         ]
-    else:
-        events = []
+        events = [event for event in parsed_summary if _meaningful_calendar_event(event)]
     calendars = data.get("calendars_queried") if isinstance(data, dict) else None
     return {
         "provider": "googlecalendar",
