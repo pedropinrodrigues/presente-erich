@@ -8,6 +8,7 @@ from typing import Any
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -549,6 +550,66 @@ class ChannelMessage(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
+
+
+class AudioTranscriptionJob(Base):
+    __tablename__ = "audio_transcription_jobs"
+    __table_args__ = (
+        UniqueConstraint("channel_message_id", name="uq_audio_transcription_message"),
+        UniqueConstraint("provider_transcript_id", name="uq_audio_transcription_provider_id"),
+        Index("ix_audio_transcription_claim", "status", "available_at", "created_at"),
+        Index("ix_audio_transcription_conversation", "conversation_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channel_messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(30), default="assemblyai", nullable=False)
+    model: Mapped[str] = mapped_column(String(100), default="universal-2", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False)
+    stage: Mapped[str] = mapped_column(String(30), default="upload", nullable=False)
+    telegram_file_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    telegram_file_unique_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    provider_upload_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider_transcript_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    provider_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    language_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    transcript_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    locked_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    provider_deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AgentRun(Base):

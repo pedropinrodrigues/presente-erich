@@ -1,6 +1,14 @@
 const encoder = new TextEncoder();
 
-export type TelegramInboundText = {
+export type TelegramInboundVoice = {
+  fileId: string;
+  fileUniqueId: string;
+  durationSeconds: number;
+  mimeType: string | null;
+  fileSizeBytes: number | null;
+};
+
+export type TelegramInboundMessage = {
   chatId: string;
   userId: string;
   externalMessageId: string;
@@ -8,6 +16,7 @@ export type TelegramInboundText = {
   timestamp: string | null;
   firstName: string | null;
   languageCode: string | null;
+  voice: TelegramInboundVoice | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -17,7 +26,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-export function parseTelegramUpdate(payload: unknown): TelegramInboundText[] {
+export function parseTelegramUpdate(payload: unknown): TelegramInboundMessage[] {
   const root = asRecord(payload);
   const message = root ? asRecord(root.message) : null;
   const chat = message ? asRecord(message.chat) : null;
@@ -29,7 +38,22 @@ export function parseTelegramUpdate(payload: unknown): TelegramInboundText[] {
   const userId = String(sender.id ?? "");
   const messageId = String(message.message_id ?? "");
   const text = String(message.text ?? "").trim();
-  if (!chatId || !userId || !messageId || !text) return [];
+  const rawVoice = asRecord(message.voice);
+  const voiceFileId = String(rawVoice?.file_id ?? "");
+  const voiceUniqueId = String(rawVoice?.file_unique_id ?? "");
+  const voiceDuration = rawVoice?.duration;
+  const voice = voiceFileId && voiceUniqueId && typeof voiceDuration === "number"
+    ? {
+      fileId: voiceFileId,
+      fileUniqueId: voiceUniqueId,
+      durationSeconds: voiceDuration,
+      mimeType: rawVoice?.mime_type == null ? null : String(rawVoice.mime_type),
+      fileSizeBytes: typeof rawVoice?.file_size === "number"
+        ? rawVoice.file_size
+        : null,
+    }
+    : null;
+  if (!chatId || !userId || !messageId || (!text && !voice)) return [];
   return [{
     chatId,
     userId,
@@ -40,6 +64,7 @@ export function parseTelegramUpdate(payload: unknown): TelegramInboundText[] {
     languageCode: sender.language_code == null
       ? null
       : String(sender.language_code),
+    voice,
   }];
 }
 

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_backend.config import Settings
 from agents_backend.models import (
+    AudioTranscriptionJob,
     ChannelMessage,
     OrchestrationTask,
     OutboxMessage,
@@ -24,6 +25,14 @@ def _as_utc(value: datetime) -> datetime:
 
 async def _queue_snapshot(session: AsyncSession, now: datetime) -> dict[str, Any]:
     definitions = {
+        "audio_transcription": (
+            AudioTranscriptionJob,
+            or_(
+                AudioTranscriptionJob.status.in_(["queued", "retrying"]),
+                (AudioTranscriptionJob.status == "running")
+                & (AudioTranscriptionJob.lease_expires_at < now),
+            ),
+        ),
         "channel_inbound": (
             ChannelMessage,
             (

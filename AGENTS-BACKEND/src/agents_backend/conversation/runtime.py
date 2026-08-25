@@ -33,7 +33,7 @@ from .tools import ToolRegistry, delegation_tool_specs, fast_tool_specs
 
 logger = logging.getLogger(__name__)
 
-CONVERSATION_PROMPT_VERSION = "conversation-router-2026-08-24-v8"
+CONVERSATION_PROMPT_VERSION = "conversation-router-2026-08-25-v9"
 
 ROUTING_INSTRUCTIONS = """
 Você é Luna, a interface conversacional rápida. Sua primeira responsabilidade é compreender a
@@ -78,6 +78,9 @@ Regras obrigatórias:
 - Se houver ação pendente e o usuário apenas repetir ou reformular o pedido sem confirmar de modo
   inequívoco, use request_confirmation.
 - Use clarify quando uma informação essencial falta antes de qualquer execução.
+- Quando a mensagem atual vier marcada como transcrição de voz com baixa confiança e houver nomes,
+  datas, destinatários ou instruções de consequência duvidosos, use clarify antes de delegar. Não
+  peça confirmação apenas por ser áudio quando o conteúdo estiver claro.
 - understanding explica objetivamente o que você entendeu da mensagem atual.
 - handoff_context deve ser um resumo operacional bem explicativo: inclua referências relevantes
   da conversa, alvo aparente, restrições, estado de confirmação e incertezas. Não invente fatos,
@@ -210,10 +213,19 @@ class ConversationAgent:
             )
         ][: self.settings.conversation_history_messages]
         rows.reverse()
+
+        def history_content(row: ChannelMessage) -> str:
+            if row.message_metadata.get("transcription_low_confidence") is True:
+                return (
+                    "[Transcrição automática de voz com baixa confiança; confirme detalhes "
+                    "sensíveis antes de agir.]\n" + row.content
+                )
+            return row.content
+
         return [
             {
                 "role": "user" if row.direction == "inbound" else "assistant",
-                "content": row.content,
+                "content": history_content(row),
             }
             for row in rows
         ]

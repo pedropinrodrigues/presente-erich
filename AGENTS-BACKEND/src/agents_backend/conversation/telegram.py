@@ -24,12 +24,22 @@ from .service import ConversationService
 
 
 @dataclass(frozen=True, slots=True)
-class TelegramInboundText:
+class TelegramInboundVoice:
+    file_id: str
+    file_unique_id: str
+    duration_seconds: int
+    mime_type: str | None
+    file_size_bytes: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class TelegramInboundMessage:
     chat_id: str
     user_id: str
     external_message_id: str
     text: str
     timestamp: str | None
+    voice: TelegramInboundVoice | None = None
 
 
 def _secret_value(value: Any) -> str:
@@ -44,7 +54,7 @@ def verify_telegram_webhook_secret(secret: str | None, settings: Settings) -> bo
     return bool(expected and secret and hmac.compare_digest(secret, expected))
 
 
-def parse_telegram_update(payload: dict[str, Any]) -> list[TelegramInboundText]:
+def parse_telegram_update(payload: dict[str, Any]) -> list[TelegramInboundMessage]:
     message = payload.get("message")
     if not isinstance(message, dict):
         return []
@@ -55,18 +65,38 @@ def parse_telegram_update(payload: dict[str, Any]) -> list[TelegramInboundText]:
     if chat.get("type") != "private" or sender.get("is_bot") is True:
         return []
     text = str(message.get("text", "")).strip()
+    voice_payload = message.get("voice")
+    voice: TelegramInboundVoice | None = None
+    if isinstance(voice_payload, dict):
+        file_id = str(voice_payload.get("file_id") or "")
+        file_unique_id = str(voice_payload.get("file_unique_id") or "")
+        duration = voice_payload.get("duration")
+        file_size = voice_payload.get("file_size")
+        if file_id and file_unique_id and isinstance(duration, int) and duration >= 0:
+            voice = TelegramInboundVoice(
+                file_id=file_id,
+                file_unique_id=file_unique_id,
+                duration_seconds=duration,
+                mime_type=(
+                    str(voice_payload["mime_type"])
+                    if voice_payload.get("mime_type") is not None
+                    else None
+                ),
+                file_size_bytes=file_size if isinstance(file_size, int) else None,
+            )
     chat_id = str(chat.get("id", ""))
     user_id = str(sender.get("id", ""))
     message_id = str(message.get("message_id", ""))
-    if not text or not chat_id or not user_id or not message_id:
+    if (not text and voice is None) or not chat_id or not user_id or not message_id:
         return []
     return [
-        TelegramInboundText(
+        TelegramInboundMessage(
             chat_id=chat_id,
             user_id=user_id,
             external_message_id=f"{chat_id}:{message_id}",
             text=text,
             timestamp=str(message["date"]) if message.get("date") is not None else None,
+            voice=voice,
         )
     ]
 
@@ -189,7 +219,7 @@ async def ingest_telegram_update(
     accepted = 0
     duplicates = 0
     for message in parse_telegram_update(payload):
-        if extract_telegram_verification_code(message.text) is not None:
+        if message.voice is None and extract_telegram_verification_code(message.text) is not None:
             if await verify_telegram_account_from_message(
                 session,
                 chat_id=message.chat_id,
@@ -197,14 +227,28 @@ async def ingest_telegram_update(
             ):
                 accepted += 1
             continue
-        persisted, replayed = await service.ingest_telegram_text(
-            session,
-            chat_id=message.chat_id,
-            user_id=message.user_id,
-            external_message_id=message.external_message_id,
-            text=message.text,
-            timestamp=message.timestamp,
-        )
+        if message.voice is not None:
+            persisted, replayed = await service.ingest_telegram_voice(
+                session,
+                chat_id=message.chat_id,
+                user_id=message.user_id,
+                external_message_id=message.external_message_id,
+                file_id=message.voice.file_id,
+                file_unique_id=message.voice.file_unique_id,
+                duration_seconds=message.voice.duration_seconds,
+                mime_type=message.voice.mime_type,
+                file_size_bytes=message.voice.file_size_bytes,
+                timestamp=message.timestamp,
+            )
+        else:
+            persisted, replayed = await service.ingest_telegram_text(
+                session,
+                chat_id=message.chat_id,
+                user_id=message.user_id,
+                external_message_id=message.external_message_id,
+                text=message.text,
+                timestamp=message.timestamp,
+            )
         if persisted is not None:
             accepted += 1
             duplicates += int(replayed)
@@ -238,6 +282,58 @@ class TelegramClient:
         self.settings = settings or get_settings()
         self.client = client
 
+    def _token(self) -> str:
+        token = _secret_value(self.settings.telegram_bot_token)
+        if not token:
+            raise AppError(
+                "telegram_not_configured",
+                "O bot do Telegram ainda não foi configurado.",
+                503,
+            )
+        return token
+
+    async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        if self.client is not None:
+            response = await self.client.request(method, url, **kwargs)
+        else:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.request(method, url, **kwargs)
+        response.raise_for_status()
+        return response
+
+    async def send_chat_action(self, destination: str, action: str = "typing") -> None:
+        token = self._token()
+        url = f"{self.settings.telegram_api_base_url.rstrip('/')}/bot{token}/sendChatAction"
+        response = await self._request(
+            "POST", url, json={"chat_id": destination, "action": action}
+        )
+        if not response.json().get("ok"):
+            raise RuntimeError("O Telegram recusou a indicação de atividade")
+
+    async def download_file(self, file_id: str, maximum_bytes: int) -> bytes:
+        token = self._token()
+        base_url = self.settings.telegram_api_base_url.rstrip("/")
+        metadata_response = await self._request(
+            "GET",
+            f"{base_url}/bot{token}/getFile",
+            params={"file_id": file_id},
+        )
+        payload = metadata_response.json()
+        result = payload.get("result") or {}
+        file_path = result.get("file_path")
+        file_size = result.get("file_size")
+        if not payload.get("ok") or not isinstance(file_path, str) or not file_path:
+            raise RuntimeError("O Telegram não retornou o arquivo de áudio")
+        if isinstance(file_size, int) and file_size > maximum_bytes:
+            raise RuntimeError("O áudio excede o limite permitido")
+        audio_response = await self._request(
+            "GET", f"{base_url}/file/bot{token}/{file_path}"
+        )
+        audio = audio_response.content
+        if len(audio) > maximum_bytes:
+            raise RuntimeError("O áudio excede o limite permitido")
+        return audio
+
     async def send_text(
         self,
         *,
@@ -246,39 +342,22 @@ class TelegramClient:
         conversation_metadata: dict[str, Any] | None = None,
     ) -> str:
         del conversation_metadata
-        token = _secret_value(self.settings.telegram_bot_token)
-        if not token:
-            raise AppError(
-                "telegram_not_configured",
-                "O bot do Telegram ainda não foi configurado.",
-                503,
-            )
+        token = self._token()
         chunks = telegram_text_chunks(telegram_plain_text(text))
         if not chunks:
             raise RuntimeError("Mensagem de saída vazia")
         url = f"{self.settings.telegram_api_base_url.rstrip('/')}/bot{token}/sendMessage"
         message_id = ""
         for chunk in chunks:
-            if self.client is not None:
-                response = await self.client.post(
-                    url,
-                    json={
-                        "chat_id": destination,
-                        "text": chunk,
-                        "link_preview_options": {"is_disabled": True},
-                    },
-                )
-            else:
-                async with httpx.AsyncClient(timeout=20.0) as client:
-                    response = await client.post(
-                        url,
-                        json={
-                            "chat_id": destination,
-                            "text": chunk,
-                            "link_preview_options": {"is_disabled": True},
-                        },
-                    )
-            response.raise_for_status()
+            response = await self._request(
+                "POST",
+                url,
+                json={
+                    "chat_id": destination,
+                    "text": chunk,
+                    "link_preview_options": {"is_disabled": True},
+                },
+            )
             data = response.json()
             result = data.get("result") or {}
             if not data.get("ok") or result.get("message_id") is None:

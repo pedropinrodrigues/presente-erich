@@ -34,6 +34,11 @@ from agents_backend.scheduling.dispatcher import (
     expire_stale_schedules,
     process_scheduled_run_job,
 )
+from agents_backend.transcription.assemblyai import AssemblyAIClient
+from agents_backend.transcription.service import (
+    claim_audio_transcription_job,
+    process_audio_transcription_job,
+)
 from agents_backend.worker.health import record_worker_heartbeat
 from agents_backend.worker.service import claim_job, default_worker_id, process_job
 
@@ -56,9 +61,24 @@ async def _worker_cycle(
     clients: dict[str, ChannelClient],
     active_providers: tuple[str, ...],
     gateway: ModelGateway,
+    telegram_audio_client: TelegramClient | None,
+    assemblyai_client: AssemblyAIClient,
     stage: list[str],
 ) -> bool:
     processed = False
+    if telegram_audio_client is not None:
+        stage[0] = "audio_transcription"
+        async with get_session_factory()() as session:
+            audio_job = await claim_audio_transcription_job(session, worker_id)
+            if audio_job is not None:
+                await process_audio_transcription_job(
+                    session,
+                    audio_job,
+                    settings=settings,
+                    telegram=telegram_audio_client,
+                    assemblyai=assemblyai_client,
+                )
+                processed = True
     stage[0] = "channel_message"
     async with get_session_factory()() as session:
         channel_message = await claim_channel_message(session, worker_id, active_providers)
@@ -121,11 +141,14 @@ async def worker_loop() -> None:
         OrchestrationAgent(settings=settings, gateway=gateway)
     )
     clients: dict[str, ChannelClient]
+    telegram_audio_client: TelegramClient | None = None
     if settings.messaging_provider == TELEGRAM_PROVIDER:
-        clients = {TELEGRAM_PROVIDER: TelegramClient(settings)}
+        telegram_audio_client = TelegramClient(settings)
+        clients = {TELEGRAM_PROVIDER: telegram_audio_client}
     else:
         clients = {WHATSAPP_PROVIDER: WhatsAppClient(settings)}
     active_providers = (settings.messaging_provider,)
+    assemblyai_client = AssemblyAIClient(settings)
     consecutive_failures = 0
     last_heartbeat = 0.0
     stage = ["startup"]
@@ -147,6 +170,8 @@ async def worker_loop() -> None:
                     clients=clients,
                     active_providers=active_providers,
                     gateway=gateway,
+                    telegram_audio_client=telegram_audio_client,
+                    assemblyai_client=assemblyai_client,
                     stage=stage,
                 )
             consecutive_failures = 0

@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -135,6 +135,30 @@ class Settings(BaseSettings):
     telegram_webhook_secret: SecretStr | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
     telegram_api_base_url: str = Field(
         default="https://api.telegram.org", alias="TELEGRAM_API_BASE_URL"
+    )
+    assembly_ai_api_token: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ASSEMBLY_AI_API_TOKEN", "ASSEMBLYAI_API_KEY"),
+    )
+    assemblyai_api_base_url: str = Field(
+        default="https://api.assemblyai.com", alias="ASSEMBLYAI_API_BASE_URL"
+    )
+    assemblyai_model: str = Field(default="universal-2", alias="ASSEMBLYAI_MODEL")
+    assemblyai_language_code: str = Field(default="pt", alias="ASSEMBLYAI_LANGUAGE_CODE")
+    assemblyai_timeout_seconds: float = Field(
+        default=30.0, alias="ASSEMBLYAI_TIMEOUT_SECONDS", ge=5, le=120
+    )
+    assemblyai_poll_interval_seconds: float = Field(
+        default=1.0, alias="ASSEMBLYAI_POLL_INTERVAL_SECONDS", ge=0.5, le=30
+    )
+    assemblyai_max_audio_seconds: int = Field(
+        default=120, alias="ASSEMBLYAI_MAX_AUDIO_SECONDS", ge=1, le=3600
+    )
+    assemblyai_max_audio_bytes: int = Field(
+        default=20_000_000, alias="ASSEMBLYAI_MAX_AUDIO_BYTES", ge=1024, le=20_000_000
+    )
+    assemblyai_min_confidence: float = Field(
+        default=0.65, alias="ASSEMBLYAI_MIN_CONFIDENCE", ge=0, le=1
     )
     whatsapp_verify_token: SecretStr | None = Field(default=None, alias="WHATSAPP_VERIFY_TOKEN")
     whatsapp_app_secret: SecretStr | None = Field(default=None, alias="WHATSAPP_APP_SECRET")

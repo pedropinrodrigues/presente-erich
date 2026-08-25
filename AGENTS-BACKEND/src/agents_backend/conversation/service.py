@@ -12,6 +12,7 @@ from agents_backend.config import Settings, get_settings
 from agents_backend.errors import ConflictError, NotFoundError
 from agents_backend.models import (
     AgentRun,
+    AudioTranscriptionJob,
     ChannelAccount,
     ChannelMessage,
     Conversation,
@@ -371,6 +372,96 @@ class ConversationService:
                 "provider_timestamp": timestamp,
             },
         )
+
+    async def ingest_telegram_voice(
+        self,
+        session: AsyncSession,
+        *,
+        chat_id: str,
+        user_id: str,
+        external_message_id: str,
+        file_id: str,
+        file_unique_id: str,
+        duration_seconds: int,
+        mime_type: str | None,
+        file_size_bytes: int | None,
+        timestamp: str | None,
+    ) -> tuple[ChannelMessage | None, bool]:
+        account = await session.scalar(
+            select(ChannelAccount).where(
+                ChannelAccount.provider == TELEGRAM_PROVIDER,
+                ChannelAccount.external_account_id == chat_id,
+                ChannelAccount.active.is_(True),
+            )
+        )
+        if account is None:
+            return None, False
+        existing = await session.scalar(
+            select(ChannelMessage).where(
+                ChannelMessage.provider == TELEGRAM_PROVIDER,
+                ChannelMessage.external_message_id == external_message_id,
+            )
+        )
+        if existing is not None:
+            return existing, True
+        conversation = await session.scalar(
+            select(Conversation).where(
+                Conversation.provider == TELEGRAM_PROVIDER,
+                Conversation.external_thread_id == chat_id,
+            )
+        )
+        if conversation is None:
+            conversation = Conversation(
+                workspace_id=account.workspace_id,
+                user_id=account.user_id,
+                channel_account_id=account.id,
+                provider=TELEGRAM_PROVIDER,
+                external_thread_id=chat_id,
+                status="active",
+                conversation_metadata={"chat_id": chat_id},
+            )
+            session.add(conversation)
+            await session.flush()
+        inbound = ChannelMessage(
+            workspace_id=account.workspace_id,
+            conversation_id=conversation.id,
+            provider=TELEGRAM_PROVIDER,
+            external_message_id=external_message_id,
+            direction="inbound",
+            content="",
+            status="transcription_pending",
+            message_metadata={
+                "input_type": "voice",
+                "sender": chat_id,
+                "chat_id": chat_id,
+                "telegram_user_id": user_id,
+                "provider_timestamp": timestamp,
+                "telegram_file_unique_id": file_unique_id,
+                "voice_duration_seconds": duration_seconds,
+                "voice_mime_type": mime_type,
+                "voice_file_size_bytes": file_size_bytes,
+            },
+        )
+        session.add(inbound)
+        await session.flush()
+        session.add(
+            AudioTranscriptionJob(
+                workspace_id=account.workspace_id,
+                conversation_id=conversation.id,
+                channel_message_id=inbound.id,
+                provider="assemblyai",
+                model=self.settings.assemblyai_model,
+                telegram_file_id=file_id,
+                telegram_file_unique_id=file_unique_id,
+                mime_type=mime_type,
+                duration_seconds=duration_seconds,
+                file_size_bytes=file_size_bytes,
+                max_attempts=self.settings.worker_max_attempts,
+            )
+        )
+        conversation.updated_at = datetime.now(UTC)
+        await session.commit()
+        return inbound, False
 
     async def _ingest_channel_text(
         self,

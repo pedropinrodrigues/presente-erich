@@ -8,7 +8,7 @@ Entregar um backend simples de operar que transforme uma transcrição em memór
 
 ```text
 HTTP autenticado ───────────────┐
-Telegram Bot API ─────→ Supabase Edge Function
+Telegram Bot API (texto/voz) ─→ Supabase Edge Function
                                 │ mensagem idempotente
                                 ▼
                  Conversation Service ──→ histórico local
@@ -42,7 +42,7 @@ Telegram Bot API ─────→ Supabase Edge Function
   responde consultas sem possuir tools de escrita.
 - **Orquestrador:** executa tarefas persistidas com tools limitadas pela intenção/capacidade.
 - **Tool Registry:** injeta contexto, separa catálogos e controla schema, risco, confirmação e replay.
-- **Telegram adapter:** a Edge Function hospedada verifica o segredo do webhook, normaliza texto e
+- **Telegram adapter:** a Edge Function hospedada verifica o segredo do webhook, normaliza texto/voz e
   persiste a entrada antes de o worker responder.
 - **Outbox:** desacopla a resposta lógica do envio pelo provedor.
 
@@ -53,9 +53,10 @@ Telegram Bot API ─────→ Supabase Edge Function
 | Linguagem e API | Python 3.12+, FastAPI e Pydantic. |
 | API e casos de uso | Serviço único e modular executado localmente. |
 | Gateway Telegram | Supabase Edge Function TypeScript/Deno publicada. |
+| Transcrição de voz | Worker durável + AssemblyAI Universal-2 para áudio pré-gravado. |
 | Banco, busca textual e vetores | PostgreSQL/Supabase com `pgvector`. |
 | Processamento assíncrono | Tabela de jobs e um worker. |
-| Arquivos de áudio | Não usados pelo backend. |
+| Arquivos de áudio | Processados em memória e não persistidos pelo backend. |
 | IA | SDK Python oficial da OpenAI, via Responses API e gateway interno. |
 
 O MVP usa workflows explícitos no próprio código. LangGraph ou LangChain não são dependências

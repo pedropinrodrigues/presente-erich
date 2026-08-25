@@ -76,6 +76,9 @@ make migrate
 - API valida JWT do Supabase em toda rota privada.
 - Worker usa credencial de serviço apenas no ambiente local e nunca a expõe a clientes.
 - Segredos, transcrições completas e respostas completas do modelo não entram nos logs.
+- `ASSEMBLY_AI_API_TOKEN` configura a transcrição de voz; o modelo padrão é
+  `ASSEMBLYAI_MODEL=universal-2`. Arquivos de voz ficam somente em memória durante o upload e a
+  transcrição remota é apagada após consumo bem-sucedido.
 - Chamadas à OpenAI usam `store=false` e registram apenas identificador, versão de prompt/modelo, duração, tokens e erro normalizado.
 - O transcript de `remember_transcript` é substituído por hash e tamanho no log de execução da tool.
 - O modelo não recebe credenciais, `user_id`, `workspace_id` ou uma tool HTTP/SQL genérica.

@@ -31,12 +31,23 @@ async def claim_channel_message(
     providers: tuple[str, ...] | None = None,
 ) -> ChannelMessage | None:
     now = datetime.now(UTC)
+    earlier_inbound = aliased(ChannelMessage)
     statement = select(ChannelMessage).where(
         ChannelMessage.direction == "inbound",
         or_(
             (ChannelMessage.status.in_(["received", "retrying"]))
             & (ChannelMessage.available_at <= now),
             (ChannelMessage.status == "processing") & (ChannelMessage.lease_expires_at < now),
+        ),
+        ~exists(
+            select(earlier_inbound.id).where(
+                earlier_inbound.conversation_id == ChannelMessage.conversation_id,
+                earlier_inbound.direction == "inbound",
+                earlier_inbound.status.in_(
+                    ["transcription_pending", "received", "retrying", "processing"]
+                ),
+                earlier_inbound.created_at < ChannelMessage.created_at,
+            )
         ),
     )
     if providers:

@@ -7,7 +7,7 @@ import {
   parseTelegramUpdate,
   secureTextEquals,
   sha256Hex,
-  type TelegramInboundText,
+  type TelegramInboundMessage,
 } from "./core.ts";
 
 const PROVIDER = "telegram";
@@ -99,7 +99,7 @@ async function activeAccount(
 
 async function acceptInvite(
   client: DatabaseClient,
-  message: TelegramInboundText,
+  message: TelegramInboundMessage,
   token: string,
 ): Promise<string> {
   const { data, error } = await client.rpc("accept_telegram_invite", {
@@ -134,7 +134,7 @@ async function findConversation(
 async function resolveConversation(
   client: DatabaseClient,
   account: ChannelAccount,
-  message: TelegramInboundText,
+  message: TelegramInboundMessage,
 ): Promise<Conversation> {
   const existing = await findConversation(client, message.chatId);
   if (existing) return existing;
@@ -181,7 +181,7 @@ async function messageAlreadyExists(
 
 async function ingestMessage(
   client: DatabaseClient,
-  message: TelegramInboundText,
+  message: TelegramInboundMessage,
 ): Promise<"ignored" | "accepted" | "duplicate"> {
   const account = await activeAccount(client, message.chatId);
   if (!account) return "ignored";
@@ -190,8 +190,9 @@ async function ingestMessage(
   }
   const conversation = await resolveConversation(client, account, message);
   const now = new Date().toISOString();
+  const channelMessageId = crypto.randomUUID();
   const { error } = await client.from("channel_messages").insert({
-    id: crypto.randomUUID(),
+    id: channelMessageId,
     workspace_id: account.workspace_id,
     conversation_id: conversation.id,
     reply_to_message_id: null,
@@ -199,7 +200,7 @@ async function ingestMessage(
     external_message_id: message.externalMessageId,
     direction: "inbound",
     content: message.text,
-    status: "received",
+    status: message.voice ? "transcription_pending" : "received",
     attempts: 0,
     max_attempts: 3,
     available_at: now,
@@ -211,10 +212,42 @@ async function ingestMessage(
       chat_id: message.chatId,
       telegram_user_id: message.userId,
       provider_timestamp: message.timestamp,
+      input_type: message.voice ? "voice" : "text",
+      telegram_file_unique_id: message.voice?.fileUniqueId ?? null,
+      voice_duration_seconds: message.voice?.durationSeconds ?? null,
+      voice_mime_type: message.voice?.mimeType ?? null,
+      voice_file_size_bytes: message.voice?.fileSizeBytes ?? null,
     },
     created_at: now,
     updated_at: now,
   });
+  if (!error && message.voice) {
+    const { error: jobError } = await client.from("audio_transcription_jobs").insert({
+      id: crypto.randomUUID(),
+      workspace_id: account.workspace_id,
+      conversation_id: conversation.id,
+      channel_message_id: channelMessageId,
+      provider: "assemblyai",
+      model: "universal-2",
+      status: "queued",
+      stage: "upload",
+      telegram_file_id: message.voice.fileId,
+      telegram_file_unique_id: message.voice.fileUniqueId,
+      mime_type: message.voice.mimeType,
+      duration_seconds: message.voice.durationSeconds,
+      file_size_bytes: message.voice.fileSizeBytes,
+      attempts: 0,
+      max_attempts: 3,
+      available_at: now,
+      created_at: now,
+      updated_at: now,
+    });
+    if (jobError) {
+      await client.from("channel_messages").delete().eq("id", channelMessageId);
+      throw jobError;
+    }
+    return "accepted";
+  }
   if (!error) return "accepted";
   if (error.code === "23505") return "duplicate";
   throw error;

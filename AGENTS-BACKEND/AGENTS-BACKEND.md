@@ -16,7 +16,9 @@ Mensagem → agente conversacional → tool autorizada → serviço de domínio
 → feedback no mesmo canal
 ```
 
-O áudio nunca chega ao backend. A transcrição e seus metadados são a fonte persistente do MVP.
+Transcrições podem chegar prontas pela API ou ser produzidas a partir de mensagens de voz privadas
+do Telegram. Nesse caso, o backend baixa o arquivo temporariamente, usa AssemblyAI Universal-2 e
+libera apenas o texto transcrito para o fluxo conversacional.
 
 ## Escopo do MVP
 
@@ -31,10 +33,9 @@ O áudio nunca chega ao backend. A transcrição e seus metadados são a fonte p
 - receber turnos conversacionais autenticados e idempotentes;
 - mediar leitura e escrita por um catálogo fechado de tools;
 - exigir confirmação em outro turno para toda exclusão;
-- receber texto do Telegram Bot API por webhook e responder por outbox.
+- receber texto ou voz do Telegram Bot API por webhook e responder por outbox.
 
-Ficam fora do MVP: e-mail, calendário, mídia/áudio no Telegram, notificações proativas, automações
-externas, múltiplos agentes autônomos e loops agênticos abertos.
+Grupos, canais e mídias do Telegram diferentes de mensagens de voz permanecem fora do escopo.
 
 ## Módulos
 
@@ -49,7 +50,8 @@ externas, múltiplos agentes autônomos e loops agênticos abertos.
 | Agente rápido | Responder consultas de memória e delegar tarefas sem tools de escrita. |
 | Orquestrador | Executar tarefas persistidas com Terra e tools limitadas por capacidade. |
 | Tool Registry | Validar argumentos, política, idempotência e execução de casos de uso. |
-| Telegram adapter | Verificar webhook, normalizar texto, vincular identidade e usar outbox. |
+| Telegram adapter | Verificar webhook, normalizar texto/voz, vincular identidade e usar outbox. |
+| Audio transcription | Processar voz em fila durável com AssemblyAI Universal-2. |
 
 ## Decisões de implementação do MVP
 
@@ -76,6 +78,7 @@ externas, múltiplos agentes autônomos e loops agênticos abertos.
 - [Integrações externas pelo Composio MCP](docs/11-composio-mcp-gateway-integration-plan.md)
 - [Agendamentos e rotinas](docs/12-scheduled-automations.md)
 - [Transição do backend para hospedagem permanente](docs/13-backend-hosting-transition-spec.md)
+- [Voz no Telegram com AssemblyAI](docs/14-telegram-voice-transcription.md)
 
 ## Critérios de aceite
 
