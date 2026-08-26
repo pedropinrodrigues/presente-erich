@@ -110,11 +110,13 @@ class ModelGateway:
         daily_conversation_policy = ""
         if source_type == "daily_conversation":
             daily_conversation_policy = (
-                " Esta fonte é um histórico diário em JSON Lines. Cada linha possui role=user ou "
-                "role=assistant. Mensagens assistant servem somente para resolver o contexto da "
+                " Esta fonte é um histórico diário em JSON Lines. Cada linha possui role e "
+                "memory_eligible. Mensagens assistant servem somente para resolver o contexto da "
                 "conversa e nunca sustentam memória por si mesmas. Todo fato, decisão, preferência "
-                "ou compromisso extraído deve ter sido afirmado explicitamente em uma linha "
-                "role=user, e o trecho de evidência deve conter texto dessa linha. Perguntas, "
+                "ou compromisso extraído deve ter sido afirmado explicitamente em uma linha com "
+                "role=user e memory_eligible=true. Em evidence.excerpt, copie a linha JSON inteira "
+                "e exatamente como recebida; candidatos sem essa linha completa serão descartados "
+                "pelo backend. Linhas memory_eligible=false são apenas contexto. Perguntas, "
                 "comandos operacionais, confirmações curtas e pedidos feitos ao agente não são "
                 "memória durável, salvo quando também declaram explicitamente uma informação "
                 "estável sobre o usuário, pessoa, organização ou projeto. Não memorize saudações, "

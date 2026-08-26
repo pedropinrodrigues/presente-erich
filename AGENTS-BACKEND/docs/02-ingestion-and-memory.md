@@ -84,8 +84,11 @@ os sete dias anteriores para recuperar fechamentos perdidos durante uma indispon
 
 O histórico inclui respostas do assistente para esclarecer referências da conversa, mas elas não
 podem sustentar memória por conta própria. O extrator só cria candidatos apoiados em afirmações
-explícitas de linhas `role=user`; perguntas, saudações, comandos operacionais, confirmações curtas,
-respostas do agente e resultados de tools sem proveniência própria não são memória durável.
+explícitas de linhas `role=user` e `memory_eligible=true`. Mensagens que geraram uma tarefa do
+orquestrador e comandos iniciados por `/` ficam inelegíveis. Depois do modelo, o backend exige que a
+evidência seja exatamente a linha JSON elegível completa; perguntas, saudações, comandos
+operacionais, confirmações curtas, respostas do agente e resultados de tools sem proveniência
+própria não são memória durável.
 
 ```dotenv
 DAILY_CONVERSATION_MEMORY_ENABLED=true

@@ -13,10 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agents_backend.auth import Identity, RequestContext
 from agents_backend.config import Settings
 from agents_backend.ingestion.service import ingest_transcript
-from agents_backend.models import ChannelMessage, Conversation, Source
-from agents_backend.schemas import TranscriptEvent
+from agents_backend.models import ChannelMessage, Conversation, OrchestrationTask, Source
+from agents_backend.schemas import ExtractionResult, TranscriptEvent
 
 SOURCE_TYPE = "daily_conversation"
+POLICY_VERSION = "user-evidence-v2"
 CAPTURE_NAMESPACE = uuid.UUID("49a521de-e320-42b3-a5ee-2ebff162450c")
 
 
@@ -26,7 +27,10 @@ def daily_capture_id(
     local_date: date,
     chunk_index: int,
 ) -> uuid.UUID:
-    key = f"{workspace_id}:{user_id}:{local_date.isoformat()}:{chunk_index}"
+    key = (
+        f"{POLICY_VERSION}:{workspace_id}:{user_id}:"
+        f"{local_date.isoformat()}:{chunk_index}"
+    )
     return uuid.uuid5(CAPTURE_NAMESPACE, key)
 
 
@@ -51,6 +55,8 @@ def _lines(
     conversation: Conversation,
     timezone: tzinfo,
     maximum: int,
+    *,
+    memory_eligible: bool,
 ) -> list[str]:
     timestamp = message.created_at
     if timestamp.tzinfo is None:
@@ -60,6 +66,7 @@ def _lines(
         "conversation_id": str(conversation.id),
         "channel": conversation.provider,
         "role": "user" if message.direction == "inbound" else "assistant",
+        "memory_eligible": memory_eligible,
     }
     overhead = len(
         json.dumps(
@@ -111,7 +118,10 @@ async def _messages_for_day(
     session: AsyncSession,
     start: datetime,
     end: datetime,
-) -> dict[tuple[uuid.UUID, uuid.UUID], tuple[list[ChannelMessage], dict[uuid.UUID, Conversation]]]:
+) -> dict[
+    tuple[uuid.UUID, uuid.UUID],
+    tuple[list[ChannelMessage], dict[uuid.UUID, Conversation], set[uuid.UUID]],
+]:
     inbound_rows = list(
         (
             await session.execute(
@@ -135,6 +145,20 @@ async def _messages_for_day(
     if not human_rows:
         return {}
     inbound_ids = [message.id for message, _ in human_rows]
+    delegated_ids = set(
+        (
+            await session.scalars(
+                select(OrchestrationTask.inbound_message_id).where(
+                    OrchestrationTask.inbound_message_id.in_(inbound_ids)
+                )
+            )
+        ).all()
+    )
+    eligible_ids = {
+        message.id
+        for message, _ in human_rows
+        if message.id not in delegated_ids and not message.content.lstrip().startswith("/")
+    }
     outbound_rows = list(
         (
             await session.execute(
@@ -161,6 +185,7 @@ async def _messages_for_day(
         key: (
             sorted(messages, key=lambda item: (item.created_at, item.id)),
             grouped_conversations[key],
+            eligible_ids,
         )
         for key, messages in grouped_messages.items()
     }
@@ -188,7 +213,7 @@ async def dispatch_daily_conversation_memory(
         local_date = local_now.date() - timedelta(days=offset)
         start, end = _bounds(local_date, timezone)
         groups = await _messages_for_day(session, start, end)
-        for (workspace_id, user_id), (messages, conversations) in groups.items():
+        for (workspace_id, user_id), (messages, conversations, eligible_ids) in groups.items():
             lines = [
                 line
                 for message in messages
@@ -197,6 +222,7 @@ async def dispatch_daily_conversation_memory(
                     conversations[message.conversation_id],
                     timezone,
                     settings.daily_conversation_memory_chunk_characters,
+                    memory_eligible=(message.direction == "inbound" and message.id in eligible_ids),
                 )
             ]
             chunks = _chunks(lines, settings.daily_conversation_memory_chunk_characters)
@@ -241,6 +267,7 @@ async def dispatch_daily_conversation_memory(
                                 "message_count": len(messages),
                                 "conversation_ids": sorted(str(value) for value in conversations),
                                 "memory_policy": "user_authored_only",
+                                "memory_policy_version": POLICY_VERSION,
                             },
                         ),
                         commit=False,
@@ -252,3 +279,54 @@ async def dispatch_daily_conversation_memory(
             return True
     await session.rollback()
     return False
+
+
+def filter_daily_conversation_extraction(
+    transcript: str,
+    result: ExtractionResult,
+) -> ExtractionResult:
+    eligible_lines: set[str] = set()
+    for raw_line in transcript.splitlines():
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(payload, dict)
+            and payload.get("role") == "user"
+            and payload.get("memory_eligible") is True
+        ):
+            eligible_lines.add(raw_line.strip())
+
+    def supported(candidate: object) -> bool:
+        evidence = getattr(candidate, "evidence", None)
+        excerpt = str(getattr(evidence, "excerpt", "")).strip()
+        return excerpt in eligible_lines
+
+    entities = [candidate for candidate in result.entities if supported(candidate)]
+    entity_ids = {candidate.candidate_id for candidate in entities}
+    facts = [
+        candidate
+        for candidate in result.facts
+        if supported(candidate)
+        and (
+            candidate.subject_candidate_id is None
+            or candidate.subject_candidate_id in entity_ids
+        )
+    ]
+    commitments = [
+        candidate
+        for candidate in result.commitments
+        if supported(candidate)
+        and (
+            candidate.responsible_candidate_id is None
+            or candidate.responsible_candidate_id in entity_ids
+        )
+    ]
+    return result.model_copy(
+        update={
+            "entities": entities,
+            "facts": facts,
+            "commitments": commitments,
+        }
+    )

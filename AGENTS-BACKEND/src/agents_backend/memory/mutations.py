@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agents_backend.auth import RequestContext
 from agents_backend.errors import AppError, NotFoundError
 from agents_backend.memory.service import fingerprint
-from agents_backend.models import AuditEvent, Commitment, Evidence, Fact, Job, Source
+from agents_backend.models import AuditEvent, Commitment, Entity, Evidence, Fact, Job, Source
 from agents_backend.schemas import CorrectionRequest, MutationResponse
 
 
@@ -177,26 +177,89 @@ async def delete_source(
             Evidence.workspace_id == context.workspace_id, Evidence.source_id == source.id
         )
     )
-    for target_type, target_id in linked:
+    fact_ids = {target_id for target_type, target_id in linked if target_type == "fact"}
+    commitment_ids = {
+        target_id for target_type, target_id in linked if target_type == "commitment"
+    }
+    entity_ids = {target_id for target_type, target_id in linked if target_type == "entity"}
+    facts = list(
+        (
+            await session.scalars(
+                select(Fact)
+                .where(Fact.id.in_(fact_ids))
+                .order_by(Fact.created_at.desc())
+            )
+        ).all()
+    )
+    for fact in facts:
         remaining = await session.scalar(
             select(func.count(Evidence.id)).where(
                 Evidence.workspace_id == context.workspace_id,
-                Evidence.target_type == target_type,
-                Evidence.target_id == target_id,
+                Evidence.target_type == "fact",
+                Evidence.target_id == fact.id,
             )
         )
         if remaining == 0:
-            if target_type == "fact":
-                fact = await session.get(Fact, target_id)
-                if fact and fact.workspace_id == context.workspace_id:
-                    fact.status = "deleted"
-                    fact.deleted_at = datetime.now(UTC)
-                    fact.embedding = None
-            elif target_type == "commitment":
-                commitment = await session.get(Commitment, target_id)
-                if commitment and commitment.workspace_id == context.workspace_id:
-                    commitment.status = "deleted"
-                    commitment.deleted_at = datetime.now(UTC)
+            was_current = fact.status == "current"
+            fact.status = "deleted"
+            fact.deleted_at = datetime.now(UTC)
+            fact.embedding = None
+            if was_current and fact.supersedes_id is not None:
+                previous = await session.get(Fact, fact.supersedes_id)
+                competing = await session.scalar(
+                    select(func.count(Fact.id)).where(
+                        Fact.workspace_id == fact.workspace_id,
+                        Fact.subject_entity_id == fact.subject_entity_id,
+                        Fact.predicate == fact.predicate,
+                        Fact.status == "current",
+                        Fact.id != fact.id,
+                    )
+                )
+                if previous is not None and previous.status == "superseded" and not competing:
+                    previous.status = "current"
+    commitments = list(
+        (
+            await session.scalars(select(Commitment).where(Commitment.id.in_(commitment_ids)))
+        ).all()
+    )
+    for commitment in commitments:
+        remaining = await session.scalar(
+            select(func.count(Evidence.id)).where(
+                Evidence.workspace_id == context.workspace_id,
+                Evidence.target_type == "commitment",
+                Evidence.target_id == commitment.id,
+            )
+        )
+        if remaining == 0:
+            commitment.status = "deleted"
+            commitment.deleted_at = datetime.now(UTC)
+    entities = list(
+        (await session.scalars(select(Entity).where(Entity.id.in_(entity_ids)))).all()
+    )
+    for entity in entities:
+        remaining_evidence = await session.scalar(
+            select(func.count(Evidence.id)).where(
+                Evidence.workspace_id == context.workspace_id,
+                Evidence.target_type == "entity",
+                Evidence.target_id == entity.id,
+            )
+        )
+        active_facts = await session.scalar(
+            select(func.count(Fact.id)).where(
+                Fact.workspace_id == context.workspace_id,
+                Fact.subject_entity_id == entity.id,
+                Fact.status != "deleted",
+            )
+        )
+        active_commitments = await session.scalar(
+            select(func.count(Commitment.id)).where(
+                Commitment.workspace_id == context.workspace_id,
+                Commitment.responsible_entity_id == entity.id,
+                Commitment.status != "deleted",
+            )
+        )
+        if not remaining_evidence and not active_facts and not active_commitments:
+            entity.status = "deleted"
     jobs = (
         await session.scalars(
             select(Job).where(

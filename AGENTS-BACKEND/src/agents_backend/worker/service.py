@@ -9,6 +9,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_backend.logging import job_id_context
+from agents_backend.memory.daily_conversations import filter_daily_conversation_extraction
 from agents_backend.memory.service import consolidate_extraction
 from agents_backend.model_gateway.client import GatewayResult, ModelGateway
 from agents_backend.models import Evidence, Fact, Job, ModelRun, Source
@@ -88,7 +89,10 @@ async def process_job(session: AsyncSession, job: Job, gateway: ModelGateway) ->
         )
         if not isinstance(result.value, ExtractionResult):
             raise TypeError("Saída de extração inesperada")
-        await consolidate_extraction(session, source, result.value)
+        extraction = result.value
+        if source.source_type == "daily_conversation":
+            extraction = filter_daily_conversation_extraction(source.transcript, extraction)
+        await consolidate_extraction(session, source, extraction)
         session.add(_model_run(job, result, success=True))
         await session.flush()
 

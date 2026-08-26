@@ -386,6 +386,17 @@ async def test_alias_resolution_and_temporal_supersession(
     facts = list((await session.scalars(select(Fact).order_by(Fact.created_at))).all())
     assert [fact.status for fact in facts] == ["superseded", "current"]
 
+    await delete_source(session, context, second_source.id, "Remover atualização derivada")
+    for fact in facts:
+        await session.refresh(fact)
+    assert [fact.status for fact in facts] == ["current", "deleted"]
+
+    await delete_source(session, context, first_source.id, "Remover fonte restante")
+    entity = await session.scalar(select(Entity))
+    assert entity is not None
+    await session.refresh(entity)
+    assert entity.status == "deleted"
+
 
 @pytest.mark.asyncio
 async def test_correction_and_source_deletion_are_auditable(
