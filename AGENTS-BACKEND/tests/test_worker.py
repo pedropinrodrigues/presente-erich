@@ -12,7 +12,14 @@ from agents_backend.worker.service import process_job
 
 
 class FailingGateway:
-    async def extract(self, transcript: str, captured_at: str) -> None:
+    async def extract(
+        self,
+        transcript: str,
+        captured_at: str,
+        *,
+        source_type: str | None = None,
+    ) -> None:
+        del transcript, captured_at, source_type
         raise TimeoutError("synthetic transient failure")
 
 

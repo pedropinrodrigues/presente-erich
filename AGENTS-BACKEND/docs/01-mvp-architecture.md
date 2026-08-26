@@ -45,6 +45,8 @@ Telegram Bot API (texto/voz) ─→ Supabase Edge Function
 - **Telegram adapter:** a Edge Function hospedada verifica o segredo do webhook, normaliza texto/voz e
   persiste a entrada antes de o worker responder.
 - **Outbox:** desacopla a resposta lógica do envio pelo provedor.
+- **Fechamento diário:** transforma conversas concluídas do usuário em uma fonte versionada para o
+  mesmo pipeline de extração da wiki, sem aceitar respostas do assistente como evidência primária.
 
 ## Tecnologia inicial
 
@@ -109,3 +111,5 @@ confirmação de recebimento e o resultado final. Veja
 - O serviço sempre identifica o usuário/workspace antes de ler ou gravar dados.
 - Chamadas do agente usam `store=false`; histórico e resposta final ficam no PostgreSQL.
 - Uma resposta final persistida permite recuperar um turno após crash sem executar o modelo de novo.
+- O fechamento diário usa uma chave determinística por workspace, usuário, data e chunk; replay ou
+  mais de um worker não cria fontes ou jobs duplicados.

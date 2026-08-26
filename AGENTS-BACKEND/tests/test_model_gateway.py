@@ -94,6 +94,28 @@ async def test_gateway_sends_explicit_reasoning_effort_and_disables_storage() ->
 
 
 @pytest.mark.asyncio
+async def test_daily_conversation_extraction_trusts_only_user_messages() -> None:
+    responses = FakeResponses()
+    gateway = ModelGateway(
+        settings=make_settings(),
+        client=SimpleNamespace(responses=responses),  # type: ignore[arg-type]
+    )
+
+    await gateway.extract(
+        '{"role":"user","content":"Decidi priorizar a wiki."}\n'
+        '{"role":"assistant","content":"Seu orçamento é R$ 1 milhão."}',
+        "2026-08-25T23:59:59-03:00",
+        source_type="daily_conversation",
+    )
+
+    system_prompt = responses.calls[0]["input"][0]["content"]
+    user_input = responses.calls[0]["input"][1]["content"]
+    assert "Mensagens assistant servem somente" in system_prompt
+    assert "deve ter sido afirmado explicitamente" in system_prompt
+    assert "Tipo da fonte: daily_conversation" in user_input
+
+
+@pytest.mark.asyncio
 async def test_gateway_routes_conversation_with_strict_structured_output() -> None:
     responses = FakeResponses()
     client = SimpleNamespace(responses=responses)

@@ -20,6 +20,7 @@ from agents_backend.conversation.telegram import TelegramClient
 from agents_backend.conversation.whatsapp import WhatsAppClient
 from agents_backend.db import get_engine, get_session_factory
 from agents_backend.logging import configure_logging
+from agents_backend.memory.daily_conversations import dispatch_daily_conversation_memory
 from agents_backend.model_gateway.client import ModelGateway
 from agents_backend.orchestration.runtime import OrchestrationAgent
 from agents_backend.orchestration.service import (
@@ -63,6 +64,7 @@ async def _worker_cycle(
     gateway: ModelGateway,
     telegram_audio_client: TelegramClient | None,
     assemblyai_client: AssemblyAIClient,
+    scan_daily_conversation_memory: bool,
     stage: list[str],
 ) -> bool:
     processed = False
@@ -118,6 +120,11 @@ async def _worker_cycle(
             if scheduled_run is not None:
                 await process_scheduled_run_job(session, scheduled_run, settings)
                 processed = True
+    if scan_daily_conversation_memory:
+        stage[0] = "daily_conversation_memory"
+        async with get_session_factory()() as session:
+            if await dispatch_daily_conversation_memory(session, settings):
+                processed = True
     stage[0] = "ingestion"
     async with get_session_factory()() as session:
         job = await claim_job(session, worker_id)
@@ -151,6 +158,7 @@ async def worker_loop() -> None:
     assemblyai_client = AssemblyAIClient(settings)
     consecutive_failures = 0
     last_heartbeat = 0.0
+    last_daily_memory_scan = 0.0
     stage = ["startup"]
     logger.info(
         "worker_started",
@@ -161,6 +169,10 @@ async def worker_loop() -> None:
     )
     while True:
         try:
+            scan_daily_memory = (
+                time.monotonic() - last_daily_memory_scan
+                >= settings.daily_conversation_memory_scan_interval_seconds
+            )
             async with asyncio.timeout(settings.worker_cycle_timeout_seconds):
                 processed = await _worker_cycle(
                     settings=settings,
@@ -172,8 +184,11 @@ async def worker_loop() -> None:
                     gateway=gateway,
                     telegram_audio_client=telegram_audio_client,
                     assemblyai_client=assemblyai_client,
+                    scan_daily_conversation_memory=scan_daily_memory,
                     stage=stage,
                 )
+            if scan_daily_memory:
+                last_daily_memory_scan = time.monotonic()
             consecutive_failures = 0
             if time.monotonic() - last_heartbeat >= settings.worker_heartbeat_interval_seconds:
                 stage[0] = "heartbeat"

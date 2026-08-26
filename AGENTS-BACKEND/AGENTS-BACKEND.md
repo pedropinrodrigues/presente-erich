@@ -14,6 +14,9 @@ Transcript Event → fonte persistida → extração estruturada
 
 Mensagem → agente conversacional → tool autorizada → serviço de domínio
 → feedback no mesmo canal
+
+Conversas concluídas do dia → fechamento diário idempotente
+→ fonte diária → extração conservadora → memória de longo prazo
 ```
 
 Transcrições podem chegar prontas pela API ou ser produzidas a partir de mensagens de voz privadas
@@ -34,6 +37,7 @@ libera apenas o texto transcrito para o fluxo conversacional.
 - mediar leitura e escrita por um catálogo fechado de tools;
 - exigir confirmação em outro turno para toda exclusão;
 - receber texto ou voz do Telegram Bot API por webhook e responder por outbox.
+- consolidar diariamente as conversas reais de cada usuário para ingestão seletiva na memória.
 
 Grupos, canais e mídias do Telegram diferentes de mensagens de voz permanecem fora do escopo.
 
@@ -52,6 +56,7 @@ Grupos, canais e mídias do Telegram diferentes de mensagens de voz permanecem f
 | Tool Registry | Validar argumentos, política, idempotência e execução de casos de uso. |
 | Telegram adapter | Verificar webhook, normalizar texto/voz, vincular identidade e usar outbox. |
 | Audio transcription | Processar voz em fila durável com AssemblyAI Universal-2. |
+| Daily conversation memory | Consolidar o diálogo diário e criar jobs idempotentes de extração. |
 
 ## Decisões de implementação do MVP
 

@@ -70,6 +70,34 @@ Ao excluir uma fonte ou memória, aplicar a política de retenção do workspace
 - O registro de auditoria mantém somente identificadores, ator, data, tipo de operação e motivo; nunca preserva a transcrição excluída.
 - Backups seguem a retenção padrão da plataforma por até 30 dias; restaurações não podem reativar registros marcados como excluídos.
 
+## Memória derivada das conversas diárias
+
+O worker fecha o dia anterior às 03:00 em `APP_TIMEZONE`. Para cada usuário que teve ao menos uma
+mensagem humana concluída, ele reúne a fala do usuário e as respostas diretamente ligadas a ela em
+JSON Lines com papel, horário, canal e conversa. Mensagens de voz entram depois de transcritas.
+Canários de deploy e entradas originadas por automações agendadas não participam do lote.
+
+O lote vira uma `Source` do tipo `daily_conversation` e um `Job` comum de `extract_source`. Assim,
+ele reutiliza validação, evidências, deduplicação, versionamento, embeddings, retry e auditoria já
+existentes. A captura usa UUID determinístico por workspace, usuário, data e chunk. O worker procura
+os sete dias anteriores para recuperar fechamentos perdidos durante uma indisponibilidade.
+
+O histórico inclui respostas do assistente para esclarecer referências da conversa, mas elas não
+podem sustentar memória por conta própria. O extrator só cria candidatos apoiados em afirmações
+explícitas de linhas `role=user`; perguntas, saudações, comandos operacionais, confirmações curtas,
+respostas do agente e resultados de tools sem proveniência própria não são memória durável.
+
+```dotenv
+DAILY_CONVERSATION_MEMORY_ENABLED=true
+DAILY_CONVERSATION_MEMORY_HOUR=3
+DAILY_CONVERSATION_MEMORY_LOOKBACK_DAYS=7
+DAILY_CONVERSATION_MEMORY_SCAN_INTERVAL_SECONDS=60
+DAILY_CONVERSATION_MEMORY_CHUNK_CHARACTERS=450000
+```
+
+Um dia normal gera uma única fonte/job. Se o conteúdo exceder o limite seguro de uma requisição, o
+mesmo fechamento lógico é dividido em chunks determinísticos, preservando todo o diálogo.
+
 ## Governança do modelo de IA
 
 O model gateway usa o SDK Python oficial da OpenAI e recebe apenas a fonte e o contexto mínimo necessários ao caso de uso. Toda saída de extração deve obedecer a JSON Schema versionado, com campos de evidência obrigatórios e `confidence` entre `0` e `1`. A chamada usa Structured Outputs e `store=false`.

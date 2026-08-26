@@ -81,7 +81,11 @@ async def process_job(session: AsyncSession, job: Job, gateway: ModelGateway) ->
             return
         source.status = "processing"
         await session.commit()
-        result = await gateway.extract(source.transcript, source.captured_at.isoformat())
+        result = await gateway.extract(
+            source.transcript,
+            source.captured_at.isoformat(),
+            source_type=source.source_type,
+        )
         if not isinstance(result.value, ExtractionResult):
             raise TypeError("Saída de extração inesperada")
         await consolidate_extraction(session, source, result.value)

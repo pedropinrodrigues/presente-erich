@@ -72,6 +72,27 @@ class Settings(BaseSettings):
     queue_lag_warning_seconds: int = Field(
         default=60, alias="QUEUE_LAG_WARNING_SECONDS", ge=10, le=3600
     )
+    daily_conversation_memory_enabled: bool = Field(
+        default=True, alias="DAILY_CONVERSATION_MEMORY_ENABLED"
+    )
+    daily_conversation_memory_hour: int = Field(
+        default=3, alias="DAILY_CONVERSATION_MEMORY_HOUR", ge=0, le=23
+    )
+    daily_conversation_memory_lookback_days: int = Field(
+        default=7, alias="DAILY_CONVERSATION_MEMORY_LOOKBACK_DAYS", ge=1, le=30
+    )
+    daily_conversation_memory_scan_interval_seconds: float = Field(
+        default=60.0,
+        alias="DAILY_CONVERSATION_MEMORY_SCAN_INTERVAL_SECONDS",
+        ge=10,
+        le=3600,
+    )
+    daily_conversation_memory_chunk_characters: int = Field(
+        default=450_000,
+        alias="DAILY_CONVERSATION_MEMORY_CHUNK_CHARACTERS",
+        ge=10_000,
+        le=480_000,
+    )
     deployment_revision: str | None = Field(default=None, alias="DEPLOYMENT_REVISION")
     conversation_history_messages: int = Field(
         default=12, alias="CONVERSATION_HISTORY_MESSAGES", ge=2, le=100

@@ -18,7 +18,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from agents_backend.config import Settings, get_settings
 from agents_backend.schemas import ConversationRouteDecision, ExtractionResult
 
-EXTRACTION_PROMPT_VERSION = "extraction-2026-08-15-v5"
+EXTRACTION_PROMPT_VERSION = "extraction-2026-08-26-v6"
 ANSWER_PROMPT_VERSION = "answer-2026-08-15-v1"
 SCHEMA_VERSION = "memory-candidates-v1"
 
@@ -99,8 +99,28 @@ class ModelGateway:
         stop=stop_after_attempt(2),
         reraise=True,
     )
-    async def extract(self, transcript: str, captured_at: str) -> GatewayResult:
+    async def extract(
+        self,
+        transcript: str,
+        captured_at: str,
+        *,
+        source_type: str | None = None,
+    ) -> GatewayResult:
         started = time.monotonic()
+        daily_conversation_policy = ""
+        if source_type == "daily_conversation":
+            daily_conversation_policy = (
+                " Esta fonte é um histórico diário em JSON Lines. Cada linha possui role=user ou "
+                "role=assistant. Mensagens assistant servem somente para resolver o contexto da "
+                "conversa e nunca sustentam memória por si mesmas. Todo fato, decisão, preferência "
+                "ou compromisso extraído deve ter sido afirmado explicitamente em uma linha "
+                "role=user, e o trecho de evidência deve conter texto dessa linha. Perguntas, "
+                "comandos operacionais, confirmações curtas e pedidos feitos ao agente não são "
+                "memória durável, salvo quando também declaram explicitamente uma informação "
+                "estável sobre o usuário, pessoa, organização ou projeto. Não memorize saudações, "
+                "conversa casual, respostas do agente nem resultados de tools sem proveniência "
+                "própria."
+            )
         response = await self.client.responses.parse(
             model=self.settings.openai_model_extraction,
             reasoning={"effort": self.settings.openai_reasoning_effort_extraction},
@@ -159,12 +179,14 @@ class ModelGateway:
                         "atribuída a alguém e que conclui uma entrega deve ser um compromisso com "
                         "status completed; o resultado durável pode ser um fato separado, mas não "
                         "repita a ação concluída também como fato."
+                        f"{daily_conversation_policy}"
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
                         f"Data da fonte: {captured_at}\n"
+                        f"Tipo da fonte: {source_type or 'transcript'}\n"
                         "<TRANSCRIPT_UNTRUSTED>\n"
                         f"{transcript}\n"
                         "</TRANSCRIPT_UNTRUSTED>"
