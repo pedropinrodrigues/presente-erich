@@ -3,7 +3,9 @@
 Backend em FastAPI que transforma transcrições em memória pesquisável. O Luna produz uma decisão
 estruturada para responder, esclarecer, pedir confirmação ou delegar; um orquestrador Terra pondera
 e executa ações persistidas por tools controladas. Supabase hospeda Auth, PostgreSQL e o gateway
-público do webhook; API e worker Python executam localmente nesta fase.
+público do webhook. API e worker Python podem executar localmente ou como serviços separados no
+Northflank; o repositório inclui imagem Docker, provisionamento idempotente, health checks,
+heartbeat do worker e canários de rollout.
 
 ## Preparação
 
@@ -111,9 +113,10 @@ Depois de criar o bot no BotFather:
 4. mantenha o worker ativo para processar mensagens e entregar a outbox; mantenha a API ativa para
    vínculo e rotas HTTP privadas durante o desenvolvimento.
 
-Somente chats privados em texto estão habilitados. Um chat não acessa nenhum workspace antes da
-prova de posse pelo deep link. O adaptador Meta WhatsApp permanece no repositório, mas não é o
-provedor ativo quando `MESSAGING_PROVIDER=telegram`.
+Somente chats privados estão habilitados. O canal aceita texto, mensagens de voz e arquivos de
+áudio dentro dos limites configurados; outras mídias, grupos e canais continuam fora do escopo. Um
+chat não acessa nenhum workspace antes da prova de posse pelo deep link. O adaptador Meta WhatsApp
+permanece no repositório, mas não é o provedor ativo quando `MESSAGING_PROVIDER=telegram`.
 
 ## Conectar Gmail, Google Calendar e WhatsApp Business
 
@@ -164,3 +167,5 @@ https://onuxlluzwlnkhbsfiind.supabase.co/functions/v1/composio-callback
   recorrentes, autorização permanente limitada e briefings enriquecidos pela memória.
 - `docs/13-backend-hosting-transition-spec.md`: especificação para retirar API e worker do Mac e
   publicá-los no Northflank com rollout, rollback, monitoramento e guardrails de custo zero.
+- `docs/14-telegram-voice-transcription.md`: transcrição durável de voz e arquivos de áudio do
+  Telegram com AssemblyAI.

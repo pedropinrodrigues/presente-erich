@@ -101,15 +101,16 @@ O catálogo inicial deve ser decidido explicitamente antes da implementação. S
 | leitura R0 | buscar e-mail, listar eventos, buscar página | executar após pedido explícito |
 | rascunho R1 | criar rascunho de e-mail, preparar evento | executar e mostrar resumo |
 | envio/alteração R2 | enviar e-mail, criar/editar evento, criar issue | mostrar resumo e pedir uma confirmação |
-| destrutivo R2 | apagar e-mail, cancelar evento, excluir arquivo | fora do piloto inicial |
+| destrutivo R2 | cancelar evento | implementado com confirmação; apagar e-mail/arquivo continua fora do piloto |
 
 Não usar `toolkits` sem filtro nem `preload.tools=all`: além de ampliar poder indevidamente, isso
 infla o contexto. A documentação do Composio recomenda manter o conjunto pré-carregado pequeno.
 
-## Dados e migration
+## Dados e migration implementados
 
-Criar migration `202608xx_0005_composio_integrations.py` com as estruturas abaixo. Os nomes podem
-ser ajustados à convenção do projeto, mas os invariantes são obrigatórios.
+A migration `20260819_0005_composio_integrations.py`, complementada pela migration multi-conta
+`20260823_0006_multi_account_integrations.py`, criou as estruturas abaixo. Os invariantes continuam
+sendo parte do contrato do projeto.
 
 ### `external_integrations`
 
@@ -154,34 +155,27 @@ UNIQUE(workspace_id, idempotency_key)
 INDEX(orchestration_task_id, created_at)
 ```
 
-Estender `tool_executions` com `provider`, `external_action_id` e `external_execution_id` anuláveis,
-ou criar uma relação de auditoria equivalente. `PendingAction` deve aceitar uma ação externa de
-forma genérica; a implementação atual confirma apenas exclusões de memória e precisa ganhar um
-despachante estrito por tipo de ação.
+`ExternalAction`, `ToolExecution` e `PendingAction` preservam a relação entre intenção, confirmação,
+execução e auditoria. O despachante de confirmação reconhece ações externas e ativa o executor
+estrito correspondente sem entregar a escolha do handler ao modelo.
 
-## Componentes a implementar
+## Componentes implementados e extensíveis
 
 ```text
 src/agents_backend/integrations/composio/
-  client.py             cliente mínimo para sessão e transporte MCP
   gateway.py            descoberta, chamada e normalização de erros
   policies.py           allowlist, risco, confirmação e redaction por tool
-  schemas.py            DTOs internos de tool, conexão e ação
   service.py            casos de uso: conectar, listar, executar, reconciliar
-  mcp_adapter.py        cliente MCP Streamable HTTP; não expõe headers ao runtime
-  webhooks.py           verificação e processamento de eventos Composio
+  results.py            compactação e normalização segura dos resultados MCP
 
-src/agents_backend/integrations/service.py
-  fronteira comum para futuros provedores além do Composio
-
-src/agents_backend/api/composio_routes.py
-  endpoints autenticados de conexão, callback e listagem
+supabase/functions/composio-callback/
+  index.ts              callback público e validação do estado OAuth
+  core.ts               regras testáveis do callback
 ```
 
-Adicionar dependências fixadas para o SDK Python atual do Composio e um cliente MCP compatível com
-Streamable HTTP. Preferir o SDK somente para criar/reusar sessões e Connect Links; o adaptador MCP
-usa `session.mcp.url` e `session.mcp.headers` em memória. Isolar o SDK atrás de protocolo/fake para
-que os testes não precisem da rede.
+As dependências do SDK Composio e do cliente MCP estão fixadas por faixa no `pyproject.toml`. O SDK
+cria sessões e Connect Links; o gateway usa URL e headers MCP apenas em memória. O transporte fica
+atrás do gateway e pode ser substituído por fake nos testes sem rede.
 
 ## Fluxos
 
@@ -277,7 +271,7 @@ provedor de mensageria.
 
 ## Implementação por etapas
 
-### Etapa 0 — decisão de produto e Composio
+### Etapa 0 — decisão de produto e Composio — concluída
 
 - Escolher 2–3 toolkits do piloto e as tools exatas de cada um.
 - Criar projeto Composio, API key de servidor e auth configs; definir callback HTTPS público.
@@ -286,7 +280,7 @@ provedor de mensageria.
 
 **Gate:** catálogo explícito aprovado; nenhuma tool de envio, exclusão ou proxy genérico liberada.
 
-### Etapa 1 — fundação, dados e cliente fake
+### Etapa 1 — fundação, dados e cliente fake — concluída
 
 - Adicionar configurações: `COMPOSIO_API_KEY`, `COMPOSIO_CALLBACK_URL`,
   `COMPOSIO_USER_ID_SECRET`, `COMPOSIO_ENABLED`, timeout e allowlist versionada.
@@ -297,7 +291,7 @@ provedor de mensageria.
 **Gate:** testes de isolamento entre usuários/workspaces, nenhum segredo serializado e migration
 reversível em ambiente local.
 
-### Etapa 2 — conexão e ciclo de vida
+### Etapa 2 — conexão e ciclo de vida — parcial
 
 - Implementar criação de Connect Link, callback assinado e espelho de conta conectada.
 - Adicionar listagem e revogação; processar expiração e reconexão.
@@ -306,7 +300,10 @@ reversível em ambiente local.
 **Gate:** um usuário não pode usar, listar ou reconectar conta de outro; callback repetido é
 idempotente.
 
-### Etapa 3 — MCP adapter e leitura R0
+Conexão, callback, expiração e múltiplas contas estão implementados. Revogação iniciada pelo
+produto continua pendente.
+
+### Etapa 3 — MCP adapter e leitura R0 — concluída para o catálogo inicial
 
 - Criar/reusar sessão Composio com `mcp=True`, sandbox desligado e allowlist curta.
 - Implementar descoberta MCP, conversão de schema, timeout, redaction e execução de leitura R0.
@@ -315,7 +312,7 @@ idempotente.
 **Gate:** o Terra só enxerga tool aprovada; falha de conexão é explicada sem vazar URL/headers;
 repetição da mesma mensagem não chama o provedor duas vezes.
 
-### Etapa 4 — rascunhos e ações confirmadas
+### Etapa 4 — rascunhos e ações confirmadas — concluída para o catálogo inicial
 
 - Introduzir `ExternalAction` e confirmação genérica no `PendingAction`.
 - Implementar uma tool de rascunho R1 e uma ação R2 com resumo pré-confirmação.
@@ -323,7 +320,7 @@ repetição da mesma mensagem não chama o provedor duas vezes.
 
 **Gate:** nenhuma ação R2 ocorre sem confirmação posterior clara; retries não duplicam efeitos.
 
-### Etapa 5 — operação, avaliações e rollout
+### Etapa 5 — operação, avaliações e rollout — parcial
 
 - Telemetria por ferramenta: discovery, auth, MCP, execução, confirmação, p50/p95, erro e custo.
 - Evals com ênfase em injeção de prompt em e-mails/documentos, tool não permitida, schema remoto
@@ -350,7 +347,7 @@ malformado, conta expirada, cross-workspace e resultado incerto.
 - expor o Composio MCP diretamente ao OpenAI/Telegram;
 - liberar todo o catálogo do Composio ou proxy HTTP genérico;
 - execução de shell/workbench remoto;
-- triggers/automations inbound, agentes agendados e Custom MCP experimental;
+- triggers/automations inbound e Custom MCP experimental;
 - anexos grandes e sincronização em lote.
 
 Custom MCP poderá ser adicionado após a base: registrar o servidor público no Composio, esperar o

@@ -53,7 +53,7 @@ Telegram Bot API (texto/voz) ─→ Supabase Edge Function
 | Necessidade | Escolha do MVP |
 | --- | --- |
 | Linguagem e API | Python 3.12+, FastAPI e Pydantic. |
-| API e casos de uso | Serviço único e modular executado localmente. |
+| API e casos de uso | Monólito modular executável localmente ou como serviço no Northflank. |
 | Gateway Telegram | Supabase Edge Function TypeScript/Deno publicada. |
 | Transcrição de voz | Worker durável + AssemblyAI Universal-2 para áudio pré-gravado. |
 | Banco, busca textual e vetores | PostgreSQL/Supabase com `pgvector`. |
@@ -63,8 +63,9 @@ Telegram Bot API (texto/voz) ─→ Supabase Edge Function
 
 O MVP usa workflows explícitos no próprio código. LangGraph ou LangChain não são dependências
 iniciais: só serão introduzidos se o fluxo precisar de estado, ramificações ou observabilidade que
-a orquestração simples não resolva bem. Redis, fila dedicada, grafo especializado, microsserviços e
-deploy permanente da API/worker também são evoluções posteriores.
+a orquestração simples não resolva bem. Redis, fila dedicada, grafo especializado e microsserviços
+continuam como evoluções posteriores. API e worker já possuem runtime permanente preparado no
+Northflank, mantendo PostgreSQL como fila e fonte de verdade.
 
 O backend envia chamadas à Responses API com `store=false`, evitando a retenção padrão de estado de aplicação da API. A documentação oficial da OpenAI descreve essa retenção padrão e o uso do SDK/Responses API: [Data controls](https://platform.openai.com/docs/models/default-usage-policies-by-endpoint), [Developer quickstart](https://platform.openai.com/docs/quickstart/make-your-first-api-request).
 

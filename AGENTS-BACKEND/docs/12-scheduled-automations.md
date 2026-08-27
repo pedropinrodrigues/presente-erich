@@ -8,8 +8,10 @@ revisão, CRUD conversacional, dispatcher transacional, runs com lease e idempot
 Terra, memória/perfil atual, entrega pela outbox e tools Composio já aprovadas de Gmail, Google
 Calendar e WhatsApp Business. A migration ativa é `20260823_0007`.
 
-O catálogo Composio extensível descrito na Etapa 5 e o deploy permanente da Etapa 6 continuam como
-evoluções de produção. O worker local executa as rotinas somente enquanto estiver ligado.
+O catálogo Composio extensível descrito na Etapa 5 continua como evolução. A base da Etapa 6 já
+existe no repositório: API e worker possuem imagem Docker, serviços Northflank, heartbeat,
+diagnósticos e canários. A disponibilidade real das rotinas depende de o worker local ou hospedado
+estar saudável; valide o ambiente com os comandos da spec de hosting.
 
 ## Objetivo
 
@@ -391,12 +393,12 @@ outra rotina ativa sem confirmação e nenhuma edição amplia o grant silencios
 
 **Gate:** o modelo nunca adquire uma tool não aprovada durante a execução.
 
-### Etapa 6 — produção
+### Etapa 6 — produção — parcial
 
-- deploy permanente de API/worker;
-- métricas, alertas, painel de runs e recuperação;
-- testes de carga e concorrência;
-- rollout por feature flag e piloto com rotinas não destrutivas.
+- deploy permanente de API/worker no Northflank implementado no repositório;
+- heartbeat, diagnóstico de filas, canário do scheduler e recuperação básica implementados;
+- alertas externos, painel completo de runs e testes de carga/concorrência ainda pendentes;
+- rollout por feature flag e piloto observado com rotinas não destrutivas ainda pendentes.
 
 ## Testes obrigatórios
 

@@ -1,8 +1,11 @@
 # Evolução após o MVP
 
-## Condição para avançar
+## Condição para ampliar autonomia
 
-Não adicionar automação antes de a memória provar utilidade: recuperação correta, fontes compreensíveis, baixa taxa de duplicação e correções fáceis para o usuário. Métricas de volume não substituem esses sinais.
+Automação limitada já foi adicionada. Novas tools, efeitos permanentes e maior autonomia só devem
+avançar quando memória e execução provarem utilidade: recuperação correta, fontes compreensíveis,
+baixa duplicação, correções fáceis, confirmação confiável e ausência de efeitos repetidos. Métricas
+de volume não substituem esses sinais.
 
 ## Próximas fases
 
@@ -11,12 +14,12 @@ Não adicionar automação antes de a memória provar utilidade: recuperação c
 | Interface conversacional | Implementada | Runtime de agente, tools da memória, confirmações e endpoint de teste independente de canal. | Piloto controlado e observabilidade. |
 | Canal Telegram | Gateway publicado | Bot, Edge Function, segredo, webhook idempotente, deep link, worker e outbox. | Executar e observar o piloto real. |
 | Agentes em duas camadas | Implementada | Agente rápido Luna, tarefas persistidas e orquestrador Terra. | Observar piloto e ampliar tools por capacidade. |
-| Backend permanente | Especificado | API e worker always-on no Northflank, mantendo Supabase como banco, Auth e gateway. | Implementar a [spec de transição](13-backend-hosting-transition-spec.md). |
-| Convites pelo Telegram | Especificado | Conta interna, workspace pessoal, convite compartilhável e aceite atômico. | Implementar [o guia de convites](10-telegram-invites-and-accounts.md). |
+| Backend permanente | Implementado no repositório | API e worker no Northflank, mantendo Supabase como banco, Auth e gateway. | Validar revisão, health, filas e canários da [spec de transição](13-backend-hosting-transition-spec.md). |
+| Convites pelo Telegram | Implementado; piloto pendente | Conta interna, workspace pessoal, convite compartilhável e aceite atômico. | Concluir canário real e itens parciais do [guia de convites](10-telegram-invites-and-accounts.md). |
 | Canal WhatsApp | Adaptador preservado | Cloud API, assinatura HMAC, vínculo e normalização implementados. | Ativar quando houver número empresarial brasileiro. |
-| Assistente executivo | Planejado | Calendário, briefings e acompanhamento de pendências. | Qualidade confiável de memória e retrieval. |
-| Ações assistidas | Planejado | Rascunhos, aprovações e integrações somente de baixo risco. | Políticas de autorização e auditoria maduras. |
-| Agente pessoal | Planejado | Skills, integrações de e-mail/mensageria e autonomia progressiva. | Confiança do usuário, controles e métricas operacionais. |
+| Assistente executivo | Base implementada | Agendamentos, recorrências, Calendar, memória contextual e acompanhamento de pendências. | Validar briefings e rotinas no piloto hospedado. |
+| Ações assistidas | Catálogo inicial implementado | Gmail, Calendar e WhatsApp Business com risco R0–R2 e confirmação. | Revogação, reconciliação e telemetria operacional maduras. |
+| Agente pessoal | Base implementada | Memória diária, integrações e autonomia limitada por capabilities. | Piloto real, confiança do usuário, controles e métricas operacionais. |
 
 ## Ideias deliberadamente adiadas
 

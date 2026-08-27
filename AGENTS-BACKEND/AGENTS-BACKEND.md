@@ -65,8 +65,9 @@ Grupos, canais e mídias do Telegram diferentes de mensagens de voz permanecem f
 - **Orquestração:** workflows explícitos no código; LangGraph ou LangChain só serão adotados se uma etapa futura demonstrar uma necessidade concreta.
 - **Supabase hospedado:** um único projeto para Auth, PostgreSQL e a Edge Function pública do
   webhook Telegram.
-- **Execução da aplicação:** API e worker Python rodam localmente neste momento. Deploy permanente
-  desses dois processos, staging e infraestrutura de escala ficam para depois do MVP funcional.
+- **Execução da aplicação:** API e worker Python podem rodar localmente ou em serviços separados no
+  Northflank. Docker, provisionamento, migration job, health/readiness, heartbeat e canários estão
+  implementados; a conclusão operacional de cada rollout depende dos smokes externos documentados.
 
 ## Documentação por assunto
 

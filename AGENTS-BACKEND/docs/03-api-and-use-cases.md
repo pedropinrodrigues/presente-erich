@@ -2,7 +2,9 @@
 
 ## Convenções
 
-Toda chamada é autenticada e limitada ao usuário/workspace do solicitante. As respostas retornam objetos de domínio, evidências e estado de processamento; detalhes de apresentação pertencem à UI.
+Toda rota privada é autenticada e limitada ao usuário/workspace do solicitante. Webhooks públicos
+usam o segredo ou a assinatura do provedor. As respostas retornam objetos de domínio, evidências e
+estado de processamento; detalhes de apresentação pertencem à UI.
 
 ## Casos de uso essenciais
 
@@ -22,6 +24,7 @@ Toda chamada é autenticada e limitada ao usuário/workspace do solicitante. As 
 
 ```text
 POST   /v1/transcripts
+GET    /v1/profile
 GET    /v1/sources/{id}
 DELETE /v1/sources/{id}
 POST   /v1/memory/ask
@@ -32,6 +35,10 @@ DELETE /v1/memory/{id}
 POST   /v1/agent/turns
 GET    /v1/orchestration/tasks/{id}
 POST   /v1/channels/telegram/accounts
+POST   /v1/invites/telegram
+GET    /v1/invites/telegram
+DELETE /v1/invites/telegram/{id}
+GET    /v1/account
 POST   /webhooks/telegram
 POST   /v1/channels/whatsapp/accounts
 GET    /webhooks/whatsapp

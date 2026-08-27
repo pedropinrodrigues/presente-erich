@@ -3,8 +3,9 @@
 ## Estado
 
 Implementado no backend e no webhook em 24/08/2026. A migração `20260824_0009` está aplicada no
-Supabase. A ativação pública depende da publicação da Edge Function e da nova revisão da API e do
-worker.
+Supabase. O repositório também possui diagnóstico e canário transacional do aceite. Publicação da
+Edge Function, revisão ativa de API/worker e isolamento com uma segunda conta real continuam sendo
+verificações operacionais, não inferências feitas apenas a partir do código.
 
 ## Objetivo
 
@@ -519,7 +520,7 @@ tool correta e respeitam o workspace.
 
 ### Etapa 6 — conta e exclusão — parcial
 
-- Implementar visualização e alteração de perfil.
+- Visualização da própria conta implementada; alteração de perfil ainda pendente.
 - Implementar exclusão de conta com confirmação R2.
 - Cancelar jobs pendentes e tornar dados indisponíveis antes da remoção derivada.
 - Preservar auditoria mínima conforme a política de retenção.
@@ -529,7 +530,7 @@ pode iniciar e confirmar a exclusão.
 
 ### Etapa 7 — publicação e piloto — em andamento
 
-- Aplicar migration no Supabase.
+- Migration aplicada no Supabase; manter a revisão alinhada ao código publicado.
 - Publicar a nova Edge Function.
 - Manter `allowed_updates=["message"]` enquanto não houver botões de callback.
 - Executar smoke test com uma segunda conta real do Telegram.

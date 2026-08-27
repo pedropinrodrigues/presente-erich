@@ -2,14 +2,22 @@
 
 ## Estado
 
-Especificado em 24/08/2026. Ainda não implementado.
+Especificado e implementado no repositório em 24/08/2026. A implementação inclui Dockerfile,
+`.dockerignore`, comandos de produção, serviços separados para API e worker, migration job,
+provisionamento idempotente, health/readiness, heartbeat, diagnóstico de filas e canários de API,
+Telegram, convites e agendamentos.
+
+O código versionado comprova a preparação e automação do hosting, mas não comprova sozinho que a
+revisão atualmente publicada esteja saudável. `inspect`, `smoke-api`, os diagnósticos e os canários
+abaixo continuam sendo os gates operacionais de cada rollout. A transição só pode ser considerada
+concluída quando os critérios de aceite ao final deste documento forem observados no ambiente real.
 
 Destino principal: **Northflank Sandbox**. Supabase continua como banco, Auth e gateway público das
 integrações. Koyeb deixa de ser dependência do plano. Oracle Cloud Always Free permanece como
 fallback caso o Northflank deixe de atender aos limites gratuitos.
 
-Esta spec é a fonte de verdade para retirar API e worker do Mac sem alterar a arquitetura funcional
-dos agentes.
+Esta spec é a fonte de verdade para operar API e worker fora do Mac sem alterar a arquitetura
+funcional dos agentes.
 
 ## Objetivo
 
@@ -52,7 +60,7 @@ disponíveis. Cloud Run exigiria transformar o worker contínuo em um runtime ac
 Oracle Cloud atende ao runtime contínuo, mas transfere manutenção de VM, patching e reinício para o
 projeto e pode recuperar instâncias gratuitas consideradas ociosas.
 
-## Arquitetura atual
+## Arquitetura anterior à transição
 
 ```text
 Telegram
@@ -72,7 +80,7 @@ O webhook não chama o FastAPI para cada mensagem. A Edge Function grava a entra
 o worker reivindica a mensagem com lease. Portanto, a troca do worker não requer mudar a URL
 registrada no BotFather.
 
-## Arquitetura alvo
+## Arquitetura implementada para hosting
 
 ```text
                          ┌─────────────────────────────────┐
@@ -135,9 +143,9 @@ mas a sobreposição deve existir apenas durante o canário.
 Migrations não devem rodar automaticamente no start dos dois serviços, evitando corrida entre
 instâncias e misturando falha de schema com falha de inicialização.
 
-## Artefatos a implementar no repositório
+## Artefatos implementados no repositório
 
-1. `Dockerfile` multi-stage ou enxuto baseado em Python 3.13 slim:
+1. `Dockerfile` multi-stage baseado em Python 3.13 slim:
    - instalar somente dependências de runtime;
    - instalar o pacote `agents-backend`;
    - executar como usuário sem privilégios;
@@ -145,9 +153,9 @@ instâncias e misturando falha de schema com falha de inicialização.
    - não definir segredo por `ARG` ou `ENV` na imagem.
 2. `.dockerignore` com segredos, ambiente virtual, caches e artefatos locais.
 3. comandos de produção no `Makefile` para API, worker e migration, sem `--reload`.
-4. smoke de deploy que valide `/health`, `/ready`, autenticação, banco e uma operação idempotente.
+4. smokes e diagnósticos de deploy para `/health`, `/ready`, banco, filas e operações idempotentes.
 5. documentação operacional para deploy, rollback e investigação de fila.
-6. script idempotente de provisionamento pela API, sem IDs sensíveis ou segredos versionados.
+6. script idempotente de provisionamento pela API, sem segredos versionados.
 
 Uma única imagem deve servir aos três comandos. Isso elimina divergência de dependências entre API,
 worker e migrations.
@@ -203,7 +211,7 @@ O incidente de 24/08/2026 mostrou que um worker pode permanecer vivo como proces
 sucessivas falhas `DBAPIError` deixam mensagens em `received`. Reinício manual recuperou a fila,
 mas apenas o restart automático por crash não detectaria esse estado.
 
-Antes de desligar o worker local, implementar:
+A implementação de confiabilidade inclui:
 
 1. timeout limitado para abrir conexão e executar operações do ciclo;
 2. descarte do pool após erro de conexão, preservando backoff com teto;
@@ -256,7 +264,7 @@ monitorado.
 
 ## Estratégia de implementação
 
-### Etapa 1 — preparação do runtime
+### Etapa 1 — preparação do runtime — concluída no repositório
 
 - adicionar Dockerfile e `.dockerignore`;
 - executar imagem localmente para API, worker e migration;
@@ -265,7 +273,7 @@ monitorado.
 
 **Gate:** a imagem inicia os dois comandos e `/ready` consulta o Supabase.
 
-### Etapa 2 — resiliência do worker
+### Etapa 2 — resiliência do worker — concluída no repositório
 
 - adicionar timeouts e limite de falhas consecutivas;
 - persistir heartbeat e métricas de lag;
@@ -276,7 +284,7 @@ monitorado.
 **Gate:** simular indisponibilidade do banco não deixa o processo vivo e improdutivo por tempo
 indefinido.
 
-### Etapa 3 — provisionamento Northflank
+### Etapa 3 — provisionamento Northflank — automatizada; validar no ambiente
 
 - criar projeto no Sandbox;
 - apontar os builds para o bundle público da branch `main`, sem instalar o app do GitHub;
@@ -308,7 +316,7 @@ segredos; ele mostra apenas filas, lag e heartbeats necessários ao canário. Os
 usam a conta Telegram ativa mais recente: `telegram-canary` testa ingestão, worker e entrega com
 `/help`, enquanto `scheduler-canary` agenda e entrega uma mensagem após um minuto.
 
-### Etapa 4 — canário
+### Etapa 4 — canário — gate operacional por rollout
 
 1. aplicar migrations pelo job;
 2. publicar a API e validar `/health`, `/ready` e JWT;
@@ -323,12 +331,12 @@ usam a conta Telegram ativa mais recente: `telegram-canary` testa ingestão, wor
 
 **Gate:** todas as respostas chegam uma única vez e o Mac pode permanecer desligado.
 
-### Etapa 5 — estabilização
+### Etapa 5 — estabilização — acompanhamento operacional
 
 - manter logs e alertas sob observação por 48 horas;
 - validar reinício manual do container durante uma tarefa recuperável;
 - conferir custo do workspace e permanência no Sandbox;
-- atualizar a documentação que ainda afirma que API e worker são locais;
+- manter a documentação sincronizada com a revisão e o ambiente publicados;
 - remover instruções do Koyeb e registrar a revisão implantada.
 
 **Gate:** nenhuma fila ultrapassa o limite de lag e nenhum recurso pago foi criado.
@@ -392,9 +400,9 @@ O banco é a fonte de verdade, portanto trocar processos não deve exigir copiar
 12. Desligar o Mac por 24 horas não interrompe Telegram nem agendamentos.
 13. O painel do Northflank não contém nenhum recurso faturável.
 
-## Entradas necessárias do proprietário
+## Entradas operacionais do proprietário
 
-Antes da Etapa 3, o proprietário precisa:
+Para provisionar ou atualizar o ambiente, o proprietário precisa:
 
 1. criar ou liberar uma conta Northflank no tier Sandbox;
 2. gerar um token temporário da API e armazená-lo somente em `.env.local`;

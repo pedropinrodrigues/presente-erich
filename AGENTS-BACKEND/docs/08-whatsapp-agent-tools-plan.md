@@ -2,14 +2,15 @@
 
 ## Estado da implementação
 
-As etapas de persistência, tools, runtime, endpoint independente de canal e adaptador textual do
-Telegram estão implementadas. O vínculo usa deep link temporário, a Supabase Edge Function persiste
-a entrada e o worker processa turnos e outbox. O adaptador Meta WhatsApp foi preservado, mas está
-inativo por configuração durante o piloto.
+As etapas de persistência, tools, runtime, endpoint independente de canal e adaptador do Telegram
+estão implementadas. O vínculo usa deep link temporário, a Supabase Edge Function persiste texto,
+voz ou arquivo de áudio, e o worker processa transcrição, turnos e outbox. O adaptador Meta WhatsApp
+foi preservado, mas está inativo por configuração durante o piloto.
 
 O catálogo originalmente único foi posteriormente separado: o agente rápido mantém apenas leitura
 e delegação, enquanto mutações são processadas pelo orquestrador persistido descrito em
-[09-orchestrated-agent-architecture.md](09-orchestrated-agent-architecture.md).
+[09-orchestrated-agent-architecture.md](09-orchestrated-agent-architecture.md). Integrações externas
+e agendamentos foram adicionados depois, conforme os documentos 11 e 12.
 
 ## Decisão de produto
 
@@ -56,7 +57,7 @@ O extrator assíncrono continua separado. O novo agente conversacional seleciona
 feedback ao usuário; ele não recebe SQL, credenciais, acesso genérico à rede ou uma tool HTTP
 arbitrária.
 
-## Catálogo inicial de tools
+## Catálogo local de tools
 
 ### Leitura — execução automática
 
@@ -84,8 +85,9 @@ evidência suficiente; isso reduz custo e elimina um loop de modelos desnecessá
 | `confirm_action` | executor de ação pendente | exige mesmo usuário, conversa, token e ação não expirada |
 | `cancel_action` | executor de ação pendente | cancela sem produzir efeito de domínio |
 
-Envio de mensagens, e-mails, calendário e automações externas não entram nesse primeiro catálogo.
-Quando forem adicionados, exigirão preview e confirmação próprios.
+Envio de mensagens, e-mails, calendário e automações não pertencem a este catálogo local. Essas
+capacidades já foram adicionadas ao catálogo restrito do orquestrador e continuam exigindo política
+e confirmação conforme o risco.
 
 ## Contratos e execução de tools
 
@@ -130,7 +132,7 @@ backend montará somente a janela recente e o contexto necessário. IDs externos
 | R0 — leitura | buscar, listar, acompanhar | execução automática |
 | R1 — escrita reversível | contestar, correção inequívoca | executar com intenção explícita; confirmar se houver ambiguidade |
 | R2 — destrutiva | excluir memória ou fonte | confirmação obrigatória em segundo turno |
-| R3 — ação externa futura | enviar mensagem/e-mail, alterar calendário | fora desta fase; preview e confirmação obrigatórios |
+| R2 — efeito externo | enviar mensagem/e-mail, criar, alterar ou excluir evento | confirmação obrigatória em segundo turno |
 
 “Confirmo” só vale para uma `pending_action` específica da mesma conversa e usuário. A confirmação
 expira, não pode ser reutilizada e é consumida atomicamente junto com a mutação. O token aleatório
@@ -190,7 +192,7 @@ catálogo de tools mudar.
 - Implementar adaptador do provedor, verificação do webhook e normalização de mensagens.
 - Vincular número verificado a uma conta existente sem confiar em IDs recebidos do modelo.
 - Processar webhook rapidamente, enfileirar turno e enviar resposta pela outbox.
-- Suportar texto primeiro; mídia/áudio entram depois por adaptador de transcrição.
+- Suportar texto, voz e arquivo de áudio por adaptador de transcrição durável.
 
 **Gate:** mensagem duplicada do provedor produz uma única execução e uma única resposta lógica.
 
@@ -231,6 +233,10 @@ cobre seleção de tools, negativa de exclusão, prompt injection e capacidades 
 | Telegram e vínculo | `src/agents_backend/conversation/telegram.py` |
 | Jobs e outbox multicanal | `src/agents_backend/conversation/channel_jobs.py` |
 | Gateway público do Telegram | `supabase/functions/telegram-webhook/` |
+| Transcrição de áudio | `src/agents_backend/transcription/` |
+| Orquestrador persistido | `src/agents_backend/orchestration/` |
+| Integrações externas | `src/agents_backend/integrations/composio/` |
+| Agendamentos | `src/agents_backend/scheduling/` |
 | WhatsApp preservado | `src/agents_backend/conversation/whatsapp.py` |
 | Rotas | `src/agents_backend/api/routes.py` e `api/telegram_routes.py` |
 | Migration | `migrations/versions/20260816_0002_conversation_agent.py` |
@@ -251,7 +257,7 @@ cobre seleção de tools, negativa de exclusão, prompt injection e capacidades 
 
 - múltiplos agentes autônomos;
 - tool HTTP genérica, SQL ou acesso direto ao Supabase pelo modelo;
-- e-mail, calendário e envio proativo;
 - memória de conversa hospedada no provedor;
 - áudio do WhatsApp antes do fluxo textual estar aprovado;
+- catálogo MCP aberto, shell ou proxy HTTP genérico;
 - LangGraph/LangChain sem necessidade comprovada pelo runtime explícito.
