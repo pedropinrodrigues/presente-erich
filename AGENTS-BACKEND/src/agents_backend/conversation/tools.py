@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,7 @@ from agents_backend.models import (
     Conversation,
     Evidence,
     Fact,
+    ModelRun,
     OrchestrationIntent,
     OrchestrationTask,
     OrchestrationTaskEvent,
@@ -150,6 +151,36 @@ class GetMyAccountArguments(ToolArguments):
     pass
 
 
+class ResearchWebArguments(ToolArguments):
+    query: str = Field(min_length=3, max_length=1000)
+    allowed_domains: list[str] | None = Field(default=None, max_length=10)
+
+    @field_validator("allowed_domains")
+    @classmethod
+    def validate_allowed_domains(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        for candidate in value:
+            domain = candidate.strip().lower().rstrip(".")
+            if (
+                not domain
+                or len(domain) > 253
+                or "://" in domain
+                or "/" in domain
+                or ":" in domain
+                or not re.fullmatch(
+                    r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+                    r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?",
+                    domain,
+                )
+            ):
+                raise ValueError("allowed_domains aceita somente domínios, sem URL ou caminho")
+            if domain not in normalized:
+                normalized.append(domain)
+        return normalized or None
+
+
 class ToolEnvelope(BaseModel):
     ok: bool
     code: str
@@ -170,6 +201,7 @@ class ToolContext:
     idempotency_key: str
     settings: Settings
     orchestration_task: OrchestrationTask | None = None
+    model_gateway: Any | None = None
 
 
 ToolHandler = Callable[[ToolContext, Any], Awaitable[ToolEnvelope]]
@@ -241,6 +273,56 @@ def _success(
 
 def _failure(code: str, message: str, *, retryable: bool = False) -> ToolEnvelope:
     return ToolEnvelope(ok=False, code=code, message=message, retryable=retryable)
+
+
+async def _research_web(context: ToolContext, arguments: ResearchWebArguments) -> ToolEnvelope:
+    if not context.settings.web_research_enabled:
+        return _failure("web_research_disabled", "A pesquisa na internet está desativada.")
+    from agents_backend.model_gateway.client import ModelGateway, WebResearchAnswer
+
+    gateway = context.model_gateway or ModelGateway(context.settings)
+    safety_identifier = hashlib.sha256(
+        f"web-research:{context.request_context.identity.user_id}".encode()
+    ).hexdigest()
+    result = await gateway.research_web(
+        query=arguments.query,
+        allowed_domains=arguments.allowed_domains,
+        safety_identifier=safety_identifier,
+    )
+    value = WebResearchAnswer.model_validate(result.value)
+    grounded = bool(value.sources)
+    context.session.add(
+        ModelRun(
+            workspace_id=context.request_context.workspace_id,
+            purpose="web_research",
+            model=result.model,
+            prompt_version=result.prompt_version,
+            schema_version=result.schema_version,
+            provider_request_id=result.provider_request_id,
+            success=grounded,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            duration_ms=result.duration_ms,
+            error_code=None if grounded else "web_research_ungrounded",
+        )
+    )
+    if not grounded:
+        return _failure(
+            "web_research_ungrounded",
+            "A pesquisa não retornou fontes citadas suficientes para uma resposta segura.",
+        )
+    sources = [source.model_dump(mode="json") for source in value.sources]
+    return _success(
+        "web_research_completed",
+        "Pesquisa concluída com fontes citadas.",
+        data={
+            "answer": value.answer,
+            "sources": sources,
+            "searched_at": value.searched_at.isoformat(),
+            "source_count": len(sources),
+        },
+        evidence=sources,
+    )
 
 
 async def _create_user_invite(
@@ -1072,6 +1154,19 @@ def orchestration_tool_specs(capabilities: list[str]) -> list[ToolSpec]:
         from agents_backend.scheduling.service import schedule_tool_specs
 
         specs.extend(schedule_tool_specs())
+    if "web_research" in capabilities:
+        specs.append(
+            ToolSpec(
+                "research_web",
+                (
+                    "Pesquisa informações atuais na internet e retorna uma síntese com URLs "
+                    "citadas. Use allowed_domains apenas quando o usuário restringir as fontes."
+                ),
+                ResearchWebArguments,
+                "R0",
+                _research_web,
+            )
+        )
     return specs
 
 
@@ -1085,6 +1180,13 @@ def _normalized_json(raw_arguments: str) -> tuple[dict[str, Any], str]:
 
 def _sanitized_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     sanitized = dict(arguments)
+    if tool_name == "research_web" and "query" in sanitized:
+        query = str(sanitized["query"])
+        sanitized["query"] = {
+            "redacted": True,
+            "length": len(query),
+            "sha256": hashlib.sha256(query.encode()).hexdigest(),
+        }
     for field in (
         "transcript",
         "user_request",
@@ -1151,6 +1253,7 @@ class ToolRegistry:
         raw_arguments: str,
         settings: Settings | None = None,
         orchestration_task: OrchestrationTask | None = None,
+        model_gateway: Any | None = None,
     ) -> ToolExecutionOutcome:
         spec = self._specs.get(tool_name)
         version = spec.version if spec else "unknown"
@@ -1253,6 +1356,7 @@ class ToolRegistry:
                     idempotency_key=idempotency_key,
                     settings=settings or get_settings(),
                     orchestration_task=orchestration_task,
+                    model_gateway=model_gateway,
                 )
                 try:
                     async with session.begin_nested():

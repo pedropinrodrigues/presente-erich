@@ -31,6 +31,7 @@ INTENT_CAPABILITIES: dict[OrchestrationIntent, tuple[str, ...]] = {
         "integration_read",
     ),
     OrchestrationIntent.INVITE_MANAGEMENT: ("invite_management",),
+    OrchestrationIntent.WEB_RESEARCH: ("web_research",),
     OrchestrationIntent.COMPOUND: (
         "memory_read",
         "ingestion",
@@ -43,6 +44,7 @@ INTENT_CAPABILITIES: dict[OrchestrationIntent, tuple[str, ...]] = {
         "integration_read",
         "integration_draft",
         "integration_execute",
+        "web_research",
     ),
 }
 
@@ -76,6 +78,7 @@ CAPABILITY_TOOLS: dict[str, tuple[str, ...]] = {
         "revoke_user_invite",
         "get_my_account",
     ),
+    "web_research": ("research_web",),
 }
 
 

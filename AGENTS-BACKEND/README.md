@@ -149,6 +149,19 @@ O callback configurado no Composio deve ser:
 https://onuxlluzwlnkhbsfiind.supabase.co/functions/v1/composio-callback
 ```
 
+## Pesquisa na internet
+
+Pedidos que dependem de notícias, fatos atuais ou fontes externas são delegados pelo Luna ao
+orquestrador Terra. A tool `research_web` usa o `web_search` hospedado da Responses API e devolve
+uma síntese somente quando há citações HTTPS válidas. O resultado final inclui uma lista curta de
+fontes com URLs; a consulta é redigida na auditoria da tool.
+
+A funcionalidade vem ativa por padrão. Os limites podem ser ajustados com
+`WEB_RESEARCH_SEARCH_CONTEXT_SIZE`, `WEB_RESEARCH_MAX_TOOL_CALLS`,
+`WEB_RESEARCH_MAX_SOURCES` e `WEB_RESEARCH_MAX_OUTPUT_TOKENS`, ou desativados com
+`WEB_RESEARCH_ENABLED=false`. Nesta primeira versão, pesquisa web não é concedida a rotinas
+programadas.
+
 ## Documentação
 
 - `AGENTS-BACKEND.md`: escopo e critérios do MVP já implementado.
@@ -169,3 +182,5 @@ https://onuxlluzwlnkhbsfiind.supabase.co/functions/v1/composio-callback
   publicá-los no Northflank com rollout, rollback, monitoramento e guardrails de custo zero.
 - `docs/14-telegram-voice-transcription.md`: transcrição durável de voz e arquivos de áudio do
   Telegram com AssemblyAI.
+- `docs/15-web-research.md`: pesquisa atual na internet pelo Responses API, fontes, limites e
+  segurança.

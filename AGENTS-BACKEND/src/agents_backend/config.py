@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     openai_model_embedding: str = Field(
         default="text-embedding-3-small", alias="OPENAI_MODEL_EMBEDDING"
     )
+    web_research_enabled: bool = Field(default=True, alias="WEB_RESEARCH_ENABLED")
+    web_research_search_context_size: Literal["low", "medium", "high"] = Field(
+        default="medium", alias="WEB_RESEARCH_SEARCH_CONTEXT_SIZE"
+    )
+    web_research_max_tool_calls: int = Field(
+        default=3, alias="WEB_RESEARCH_MAX_TOOL_CALLS", ge=1, le=10
+    )
+    web_research_max_sources: int = Field(default=5, alias="WEB_RESEARCH_MAX_SOURCES", ge=1, le=20)
+    web_research_max_output_tokens: int = Field(
+        default=1600, alias="WEB_RESEARCH_MAX_OUTPUT_TOKENS", ge=100, le=8000
+    )
+    web_research_country: str = Field(
+        default="BR", alias="WEB_RESEARCH_COUNTRY", min_length=2, max_length=2
+    )
     worker_poll_interval_seconds: float = Field(
         default=0.5, alias="WORKER_POLL_INTERVAL_SECONDS", ge=0.1
     )
@@ -235,6 +249,13 @@ class Settings(BaseSettings):
         except ZoneInfoNotFoundError as exc:
             raise ValueError("APP_TIMEZONE deve ser um identificador IANA válido") from exc
         return value
+
+    @field_validator("web_research_country")
+    @classmethod
+    def normalize_web_research_country(cls, value: str) -> str:
+        if not value.isalpha():
+            raise ValueError("WEB_RESEARCH_COUNTRY deve ser um código ISO de duas letras")
+        return value.upper()
 
     @model_validator(mode="after")
     def validate_composio_configuration(self) -> Settings:

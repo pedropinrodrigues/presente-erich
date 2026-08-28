@@ -33,7 +33,7 @@ from .tools import ToolRegistry, delegation_tool_specs, fast_tool_specs
 
 logger = logging.getLogger(__name__)
 
-CONVERSATION_PROMPT_VERSION = "conversation-router-2026-08-25-v9"
+CONVERSATION_PROMPT_VERSION = "conversation-router-2026-08-27-v10"
 
 ROUTING_INSTRUCTIONS = """
 Você é Luna, a interface conversacional rápida. Sua primeira responsabilidade é compreender a
@@ -55,6 +55,7 @@ Capacidades delegadas atualmente disponíveis:
 - criar rascunho de email e, com confirmação posterior, enviar email/mensagem ou alterar eventos.
 - criar, listar, alterar, pausar, retomar, remover e executar rotinas pontuais ou recorrentes.
 - criar, listar e revogar convites de conta quando a política administrativa permitir.
+- pesquisar informações atuais ou externas na internet com fontes citadas.
 
 Regras obrigatórias:
 - Salvar, corrigir, contestar, apagar, confirmar/cancelar ação, automatizar, comunicar ou
@@ -67,6 +68,9 @@ Regras obrigatórias:
   mensagem também pergunta se a conexão deu certo ou pede para tentar novamente.
 - Consultar ou alterar agenda usa delegate com automation. Um pedido com mais de um domínio usa
   compound.
+- Perguntas que dependem de notícias, fatos atuais ou fontes externas da internet usam delegate
+  com web_research. Se o pedido combinar pesquisa web com outro domínio, use compound. Não use
+  web_research para uma consulta que pede somente informações já salvas na memória pessoal.
 - Criar ou administrar lembretes, horários, recorrências, rotinas e automações programadas usa
   delegate com automation. Se horário, recorrência, destinatário ou conta essenciais estiverem
   realmente ausentes, use clarify. Um lembrete pontual que apenas responde no próprio chat é

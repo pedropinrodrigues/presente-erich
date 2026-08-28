@@ -71,6 +71,7 @@ class OrchestrationIntent(StrEnum):
     EXTERNAL_COMMUNICATION = "external_communication"
     ACCOUNT_MANAGEMENT = "account_management"
     INVITE_MANAGEMENT = "invite_management"
+    WEB_RESEARCH = "web_research"
     COMPOUND = "compound"
 
 

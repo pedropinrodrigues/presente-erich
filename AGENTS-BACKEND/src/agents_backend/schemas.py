@@ -224,6 +224,7 @@ class ConversationRouteDecision(BaseModel):
             "external_communication",
             "account_management",
             "invite_management",
+            "web_research",
             "compound",
         ]
         | None

@@ -63,11 +63,16 @@ def test_orchestrator_catalog_is_restricted_by_capability() -> None:
         ).definitions()
     }
     unsupported = ToolRegistry(orchestration_tool_specs(["automation"])).definitions()
+    web_research = {
+        definition["name"]
+        for definition in ToolRegistry(orchestration_tool_specs(["web_research"])).definitions()
+    }
 
     assert "remember_transcript" in ingestion
     assert "search_memory" in ingestion
     assert "delete_memory" not in ingestion
     assert unsupported == []
+    assert web_research == {"research_web"}
 
 
 class StructuredRoutingGateway:

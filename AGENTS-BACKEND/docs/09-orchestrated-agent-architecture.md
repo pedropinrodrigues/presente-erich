@@ -154,6 +154,7 @@ request_confirmation
 | --- | --- | --- |
 | Pergunta sobre memória, fonte, entidade ou compromisso | `answer` | “Qual o prazo da proposta?” |
 | Pergunta geral segura | `answer` | “Como você pode me ajudar?” |
+| Notícia, fato atual ou fonte externa | Delegar | “Pesquise as novidades sobre este assunto” |
 | Salvar, corrigir, contestar ou apagar informação | Delegar | “Guarde isto” |
 | Criar, mudar ou cancelar automação | Delegar | “Me lembre amanhã” |
 | Agir fora do sistema | Delegar | “Envie um e-mail” |
@@ -209,7 +210,7 @@ O serviço completa e persiste o envelope:
 
 `intent` é uma enum controlada pelo backend. Valores iniciais: `memory_write`,
 `memory_correction`, `memory_deletion`, `automation`, `external_communication`,
-`account_management` e `invite_management`.
+`account_management`, `invite_management`, `web_research` e `compound`.
 
 O orquestrador recebe texto original, contexto auditável e capacidades compatíveis com a intenção.
 Ele decide quais tools usar; se não possuir a capacidade, explica a limitação. Se o contexto não for

@@ -26,6 +26,7 @@ Telegram Bot API (texto/voz) ─→ Supabase Edge Function
                                      Application layer
                                        ├─ Ingestion
                                        ├─ Memory mutations
+                                       ├─ Web research
                                        └─ integrações futuras
                                                 │
                                  PostgreSQL ← Outbox → canal
@@ -38,6 +39,8 @@ Telegram Bot API (texto/voz) ─→ Supabase Edge Function
 - **Retrieval:** combina filtros, busca textual e vetorial para montar uma resposta fundamentada.
 - **Worker:** processa extração e indexação fora da requisição inicial.
 - **Model gateway:** centraliza schemas de saída, timeout, custo, telemetria e troca de fornecedor.
+- **Web research:** encapsula o `web_search` hospedado da Responses API e só entrega respostas com
+  citações HTTP(S) normalizadas.
 - **Luna:** decide de forma estruturada entre responder, esclarecer, pedir confirmação e delegar;
   responde consultas sem possuir tools de escrita.
 - **Orquestrador:** executa tarefas persistidas com tools limitadas pela intenção/capacidade.
@@ -103,6 +106,11 @@ e são processadas pelo orquestrador em segundo plano. Exclusões ainda criam um
 `pending_action` e exigem confirmação explícita em outro turno. A outbox preserva a ordem entre a
 confirmação de recebimento e o resultado final. Veja
 [09-orchestrated-agent-architecture.md](09-orchestrated-agent-architecture.md).
+
+Pesquisa na internet segue o mesmo handoff assíncrono. O Luna classifica o pedido como
+`web_research`; o backend concede somente a capacidade homônima e o Terra pode chamar apenas
+`research_web`. A consulta não usa HTTP genérico e não dá acesso arbitrário à rede ao modelo. Veja
+[15-web-research.md](15-web-research.md).
 
 ## Regras de engenharia
 
