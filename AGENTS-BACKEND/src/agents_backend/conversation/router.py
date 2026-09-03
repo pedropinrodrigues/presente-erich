@@ -10,10 +10,22 @@ class DeterministicCommand:
 
 
 _HELP_TEXT = (
-    "Posso consultar sua memória e suas pendências. Também posso encaminhar pedidos para guardar "
-    "ou corrigir informações e, conforme novas integrações forem adicionadas, executar automações. "
-    "Para ações, aviso primeiro que recebi o pedido e envio o resultado depois. Comandos de conta: "
-    "/convidar, /convites, /revogar, /minhaconta, /macwhisper e /revogarmacwhisper."
+    "Oi! Eu sou a Luna, sua assistente de memória e ações.\n\n"
+    "Você pode falar comigo normalmente ou enviar áudio — não precisa decorar comandos. Exemplos:\n"
+    "• Guarde que a reunião do Projeto Atlas ficou para sexta.\n"
+    "• Quais são minhas pendências?\n"
+    "• Pesquise na internet as novidades sobre este assunto.\n"
+    "• Amanhã às 9h, me lembre de ligar para a Marina.\n\n"
+    "Comandos pessoais:\n"
+    "• /minhaconta — mostra o estado da sua conta.\n"
+    "• /macwhisper — cria sua URL pessoal do MacWhisper.\n"
+    "• /revogarmacwhisper — invalida essa URL.\n"
+    "• /ajuda — mostra esta orientação novamente.\n\n"
+    "Administração, somente para usuários autorizados:\n"
+    "• /convidar — cria um convite.\n"
+    "• /convites — lista seus convites.\n"
+    "• /revogar ID — revoga um convite pendente.\n\n"
+    "Se estiver em dúvida, diga o que deseja fazer e eu explico o próximo passo."
 )
 
 

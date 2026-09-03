@@ -114,10 +114,25 @@ O comando contendo o token nunca é encaminhado ao modelo e não entra no histó
 Depois do aceite:
 
 ```text
-Sua conta foi criada e este Telegram já está vinculado.
+Bem-vindo à Luna! 👋
 
-Você possui um espaço pessoal separado. Pode começar perguntando algo ou pedir para eu guardar uma
-informação.
+Sua conta pessoal está pronta e este Telegram já está conectado.
+
+Você pode escrever ou enviar áudio normalmente — não precisa decorar comandos. Experimente:
+• Guarde que a reunião do Projeto Atlas ficou para sexta.
+• Quais são minhas pendências?
+• Pesquise na internet as novidades sobre um assunto.
+• Amanhã às 9h, me lembre de ligar para a Marina.
+
+Quer usar o MacWhisper? Envie /macwhisper, copie a URL pessoal e siga as instruções recebidas.
+
+Comandos úteis:
+• /ajuda — veja capacidades e comandos.
+• /minhaconta — confira sua conta.
+• /macwhisper — configure transcrições.
+• /revogarmacwhisper — invalide a URL anterior.
+
+Quando tiver dúvida, diga o que deseja fazer e eu explico o próximo passo.
 ```
 
 O `first_name` do Telegram pode preencher inicialmente `display_name`. O usuário poderá alterá-lo

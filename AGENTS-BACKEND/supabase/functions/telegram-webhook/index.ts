@@ -7,6 +7,9 @@ import {
   parseTelegramUpdate,
   secureTextEquals,
   sha256Hex,
+  TELEGRAM_INVITE_REQUIRED_TEXT,
+  TELEGRAM_ONBOARDING_TEXT,
+  TELEGRAM_WELCOME_BACK_TEXT,
   type TelegramInboundMessage,
 } from "./core.ts";
 
@@ -35,7 +38,9 @@ function safeErrorDetail(error: unknown): string {
   if (typeof error === "object" && error !== null) {
     const value = error as Record<string, unknown>;
     const code = typeof value.code === "string" ? value.code : "unknown";
-    const message = typeof value.message === "string" ? value.message : "request failed";
+    const message = typeof value.message === "string"
+      ? value.message
+      : "request failed";
     return `${code}: ${message}`.slice(0, 300);
   }
   return "unknown error";
@@ -233,26 +238,27 @@ async function ingestMessage(
     updated_at: now,
   });
   if (!error && message.voice) {
-    const { error: jobError } = await client.from("audio_transcription_jobs").insert({
-      id: crypto.randomUUID(),
-      workspace_id: account.workspace_id,
-      conversation_id: conversation.id,
-      channel_message_id: channelMessageId,
-      provider: "assemblyai",
-      model: "universal-2",
-      status: "queued",
-      stage: "upload",
-      telegram_file_id: message.voice.fileId,
-      telegram_file_unique_id: message.voice.fileUniqueId,
-      mime_type: message.voice.mimeType,
-      duration_seconds: message.voice.durationSeconds,
-      file_size_bytes: message.voice.fileSizeBytes,
-      attempts: 0,
-      max_attempts: 3,
-      available_at: now,
-      created_at: now,
-      updated_at: now,
-    });
+    const { error: jobError } = await client.from("audio_transcription_jobs")
+      .insert({
+        id: crypto.randomUUID(),
+        workspace_id: account.workspace_id,
+        conversation_id: conversation.id,
+        channel_message_id: channelMessageId,
+        provider: "assemblyai",
+        model: "universal-2",
+        status: "queued",
+        stage: "upload",
+        telegram_file_id: message.voice.fileId,
+        telegram_file_unique_id: message.voice.fileUniqueId,
+        mime_type: message.voice.mimeType,
+        duration_seconds: message.voice.durationSeconds,
+        file_size_bytes: message.voice.fileSizeBytes,
+        attempts: 0,
+        max_attempts: 3,
+        available_at: now,
+        created_at: now,
+        updated_at: now,
+      });
     if (jobError) {
       await client.from("channel_messages").delete().eq("id", channelMessageId);
       throw jobError;
@@ -306,16 +312,18 @@ async function handleWebhook(request: Request): Promise<Response> {
       const result = await acceptInvite(client, message, inviteToken);
       accepted += 1;
       try {
-        if ([
-          "created",
-          "already_registered",
-          "already_accepted_by_same_identity",
-        ].includes(result)) {
+        if (
+          [
+            "created",
+            "already_registered",
+            "already_accepted_by_same_identity",
+          ].includes(result)
+        ) {
           await sendTelegramText(
             message.chatId,
             result === "created"
-              ? "Sua conta foi criada e este Telegram já está vinculado. Você possui um espaço pessoal separado e já pode conversar comigo."
-              : "Seu Telegram já possui uma conta. Continue usando normalmente.",
+              ? TELEGRAM_ONBOARDING_TEXT
+              : TELEGRAM_WELCOME_BACK_TEXT,
           );
         } else {
           await sendTelegramText(
@@ -337,7 +345,7 @@ async function handleWebhook(request: Request): Promise<Response> {
         try {
           await sendTelegramText(
             message.chatId,
-            "Vínculo concluído! Envie uma mensagem para conversar com seu agente.",
+            TELEGRAM_ONBOARDING_TEXT,
           );
         } catch (error) {
           console.error(
@@ -354,7 +362,7 @@ async function handleWebhook(request: Request): Promise<Response> {
         accepted += 1;
         await sendTelegramText(
           message.chatId,
-          "Para criar uma conta, abra um convite válido enviado pelo administrador.",
+          TELEGRAM_INVITE_REQUIRED_TEXT,
         );
         continue;
       }

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_backend.auth import RequestContext
 from agents_backend.config import Settings
-from agents_backend.conversation.runtime import ConversationAgent
+from agents_backend.conversation.runtime import ROUTING_INSTRUCTIONS, ConversationAgent
 from agents_backend.conversation.tools import (
     ToolArguments,
     ToolEnvelope,
@@ -42,6 +42,14 @@ def conversation_settings(**overrides: str) -> Settings:
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)  # type: ignore[arg-type]
+
+
+def test_luna_knows_onboarding_and_command_catalog() -> None:
+    assert "Quando o usuário disser que é novo" in ROUTING_INSTRUCTIONS
+    assert "/ajuda e /help" in ROUTING_INSTRUCTIONS
+    assert "/macwhisper cria uma URL pessoal" in ROUTING_INSTRUCTIONS
+    assert "/vincular CODIGO" in ROUTING_INSTRUCTIONS
+    assert "são administrativos" in ROUTING_INSTRUCTIONS
 
 
 async def conversation_records(

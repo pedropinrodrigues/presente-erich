@@ -1,5 +1,37 @@
 const encoder = new TextEncoder();
 
+export const TELEGRAM_ONBOARDING_TEXT = [
+  "Bem-vindo à Luna! 👋",
+  "",
+  "Sua conta pessoal está pronta e este Telegram já está conectado.",
+  "",
+  "Você pode escrever ou enviar áudio normalmente — não precisa decorar comandos. Experimente:",
+  "• Guarde que a reunião do Projeto Atlas ficou para sexta.",
+  "• Quais são minhas pendências?",
+  "• Pesquise na internet as novidades sobre um assunto.",
+  "• Amanhã às 9h, me lembre de ligar para a Marina.",
+  "",
+  "Quer usar o MacWhisper? Envie /macwhisper, copie a URL pessoal e siga as instruções recebidas.",
+  "",
+  "Comandos úteis:",
+  "• /ajuda — veja capacidades e comandos.",
+  "• /minhaconta — confira sua conta.",
+  "• /macwhisper — configure transcrições.",
+  "• /revogarmacwhisper — invalide a URL anterior.",
+  "",
+  "Quando tiver dúvida, diga o que deseja fazer e eu explico o próximo passo.",
+].join("\n");
+
+export const TELEGRAM_WELCOME_BACK_TEXT = [
+  "Seu Telegram já possui uma conta e continua conectado à Luna.",
+  "Envie uma mensagem ou áudio normalmente. Use /ajuda quando quiser rever possibilidades e comandos.",
+].join("\n\n");
+
+export const TELEGRAM_INVITE_REQUIRED_TEXT = [
+  "Olá! Para criar sua conta pessoal na Luna, abra um convite válido enviado pelo administrador.",
+  "Se você já recebeu o link, abra-o e toque em Iniciar. Se ele expirou, peça um novo convite.",
+].join("\n\n");
+
 export type TelegramInboundVoice = {
   fileId: string;
   fileUniqueId: string;
@@ -26,7 +58,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-export function parseTelegramUpdate(payload: unknown): TelegramInboundMessage[] {
+export function parseTelegramUpdate(
+  payload: unknown,
+): TelegramInboundMessage[] {
   const root = asRecord(payload);
   const message = root ? asRecord(root.message) : null;
   const chat = message ? asRecord(message.chat) : null;
@@ -42,17 +76,20 @@ export function parseTelegramUpdate(payload: unknown): TelegramInboundMessage[] 
   const voiceFileId = String(rawVoice?.file_id ?? "");
   const voiceUniqueId = String(rawVoice?.file_unique_id ?? "");
   const voiceDuration = rawVoice?.duration;
-  const voice = voiceFileId && voiceUniqueId && typeof voiceDuration === "number"
-    ? {
-      fileId: voiceFileId,
-      fileUniqueId: voiceUniqueId,
-      durationSeconds: voiceDuration,
-      mimeType: rawVoice?.mime_type == null ? null : String(rawVoice.mime_type),
-      fileSizeBytes: typeof rawVoice?.file_size === "number"
-        ? rawVoice.file_size
-        : null,
-    }
-    : null;
+  const voice =
+    voiceFileId && voiceUniqueId && typeof voiceDuration === "number"
+      ? {
+        fileId: voiceFileId,
+        fileUniqueId: voiceUniqueId,
+        durationSeconds: voiceDuration,
+        mimeType: rawVoice?.mime_type == null
+          ? null
+          : String(rawVoice.mime_type),
+        fileSizeBytes: typeof rawVoice?.file_size === "number"
+          ? rawVoice.file_size
+          : null,
+      }
+      : null;
   if (!chatId || !userId || !messageId || (!text && !voice)) return [];
   return [{
     chatId,

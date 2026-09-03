@@ -4,6 +4,9 @@ import {
   isTelegramStartCommand,
   parseTelegramUpdate,
   secureTextEquals,
+  TELEGRAM_INVITE_REQUIRED_TEXT,
+  TELEGRAM_ONBOARDING_TEXT,
+  TELEGRAM_WELCOME_BACK_TEXT,
 } from "./core.ts";
 
 function assert(condition: boolean, message: string): void {
@@ -77,7 +80,10 @@ Deno.test("extracts invitation payload without treating arbitrary text as an inv
     "addressed invite",
   );
   assert(extractTelegramInviteToken("/start binding-code") === null, "binding");
-  assert(extractTelegramInviteToken("hello invite_token") === null, "plain text");
+  assert(
+    extractTelegramInviteToken("hello invite_token") === null,
+    "plain text",
+  );
   assert(isTelegramStartCommand("/start"), "plain start");
 });
 
@@ -122,4 +128,26 @@ Deno.test("extracts deep-link and manual verification codes", () => {
 Deno.test("compares webhook secrets", async () => {
   assert(await secureTextEquals("secret", "secret"), "same secret");
   assert(!(await secureTextEquals("secret", "wrong")), "different secret");
+});
+
+Deno.test("onboarding teaches natural language and essential commands", () => {
+  assert(TELEGRAM_ONBOARDING_TEXT.includes("Bem-vindo à Luna"), "welcome");
+  assert(
+    TELEGRAM_ONBOARDING_TEXT.includes("não precisa decorar comandos"),
+    "natural language",
+  );
+  assert(TELEGRAM_ONBOARDING_TEXT.includes("/ajuda"), "help command");
+  assert(
+    TELEGRAM_ONBOARDING_TEXT.includes("/macwhisper"),
+    "MacWhisper command",
+  );
+  assert(
+    !TELEGRAM_ONBOARDING_TEXT.includes("/convidar"),
+    "admin commands omitted",
+  );
+  assert(TELEGRAM_WELCOME_BACK_TEXT.includes("/ajuda"), "returning user help");
+  assert(
+    TELEGRAM_INVITE_REQUIRED_TEXT.includes("convite válido"),
+    "invite guidance",
+  );
 });
