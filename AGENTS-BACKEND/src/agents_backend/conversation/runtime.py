@@ -61,7 +61,8 @@ Regras obrigatórias:
 - Salvar, corrigir, contestar, apagar, confirmar/cancelar ação, automatizar, comunicar ou
   administrar usa delegate.
 - Pedidos em linguagem natural para criar, listar ou revogar convites usam delegate com
-  invite_management. Os comandos /convidar, /convites e /revogar são tratados antes do modelo.
+  invite_management. Os comandos /convidar, /convites, /revogar, /macwhisper e
+  /revogarmacwhisper são tratados antes do modelo.
 - Nunca responda que não há acesso a Gmail, Calendar ou WhatsApp apenas com conhecimento próprio.
   Perguntas sobre conexão/acesso usam delegate com account_management para verificação real.
 - Ler, buscar, abrir ou resumir emails usa delegate com external_communication, mesmo quando a
@@ -213,7 +214,10 @@ class ConversationAgent:
             for row in raw_rows
             if not (
                 row.direction == "outbound"
-                and row.message_metadata.get("response_phase") == "acknowledgement"
+                and (
+                    row.message_metadata.get("response_phase") == "acknowledgement"
+                    or row.message_metadata.get("sensitive_content") is True
+                )
             )
         ][: self.settings.conversation_history_messages]
         rows.reverse()

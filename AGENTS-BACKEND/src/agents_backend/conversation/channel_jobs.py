@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -8,11 +9,15 @@ from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from agents_backend.integrations.macwhisper.service import (
+    revoke_credential_after_delivery_failure,
+)
 from agents_backend.models import ChannelMessage, Conversation, OutboxMessage
 
 from .service import ConversationService
 
 logger = logging.getLogger(__name__)
+SENSITIVE_MESSAGE_PLACEHOLDER = "[Credencial pessoal entregue e removida do histórico.]"
 
 
 class ChannelClient(Protocol):
@@ -43,9 +48,7 @@ async def claim_channel_message(
             select(earlier_inbound.id).where(
                 earlier_inbound.conversation_id == ChannelMessage.conversation_id,
                 earlier_inbound.direction == "inbound",
-                earlier_inbound.status.in_(
-                    ["transcribing", "received", "retrying", "processing"]
-                ),
+                earlier_inbound.status.in_(["transcribing", "received", "retrying", "processing"]),
                 earlier_inbound.created_at < ChannelMessage.created_at,
             )
         ),
@@ -167,6 +170,13 @@ async def process_outbox_message(
             if channel_message is not None:
                 channel_message.status = "completed"
                 channel_message.external_message_id = provider_message_id
+                if channel_message.message_metadata.get("sensitive_content") is True:
+                    channel_message.content = SENSITIVE_MESSAGE_PLACEHOLDER
+                    outbox.payload = {
+                        "type": "text",
+                        "text": {"body": SENSITIVE_MESSAGE_PLACEHOLDER},
+                        "redacted": True,
+                    }
         await session.commit()
     except Exception as exc:
         await session.rollback()
@@ -179,5 +189,31 @@ async def process_outbox_message(
         fresh.locked_by = None
         fresh.lease_expires_at = None
         fresh.error_code = type(exc).__name__
+        if not retry and fresh.channel_message_id is not None:
+            channel_message = await session.get(ChannelMessage, fresh.channel_message_id)
+            conversation = await session.get(Conversation, fresh.conversation_id)
+            if (
+                channel_message is not None
+                and conversation is not None
+                and channel_message.message_metadata.get("sensitive_content") is True
+            ):
+                raw_credential_id = channel_message.message_metadata.get("sensitive_credential_id")
+                try:
+                    credential_id = uuid.UUID(str(raw_credential_id))
+                except ValueError:
+                    credential_id = None
+                if credential_id is not None:
+                    await revoke_credential_after_delivery_failure(
+                        session,
+                        credential_id=credential_id,
+                        workspace_id=conversation.workspace_id,
+                        user_id=conversation.user_id,
+                    )
+                channel_message.content = SENSITIVE_MESSAGE_PLACEHOLDER
+                fresh.payload = {
+                    "type": "text",
+                    "text": {"body": SENSITIVE_MESSAGE_PLACEHOLDER},
+                    "redacted": True,
+                }
         await session.commit()
         logger.exception("outbox_delivery_failed", extra={"outbox_id": str(outbox_id)})

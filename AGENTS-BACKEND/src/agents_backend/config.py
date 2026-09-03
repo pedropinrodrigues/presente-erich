@@ -219,6 +219,49 @@ class Settings(BaseSettings):
     composio_timeout_seconds: float = Field(
         default=20.0, alias="COMPOSIO_TIMEOUT_SECONDS", ge=1, le=120
     )
+    bitrix24_mcp_enabled: bool = Field(default=False, alias="BITRIX24_MCP_ENABLED")
+    bitrix24_mcp_url: str = Field(default="https://mcp.bitrix24.com/mcp/", alias="BITRIX24_MCP_URL")
+    bitrix24_public_base_url: str | None = Field(default=None, alias="BITRIX24_PUBLIC_BASE_URL")
+    bitrix24_credential_encryption_key: SecretStr | None = Field(
+        default=None, alias="BITRIX24_CREDENTIAL_ENCRYPTION_KEY"
+    )
+    bitrix24_auth_scheme: Literal["bearer", "raw"] = Field(
+        default="bearer", alias="BITRIX24_AUTH_SCHEME"
+    )
+    bitrix24_timeout_seconds: float = Field(
+        default=20.0, alias="BITRIX24_TIMEOUT_SECONDS", ge=1, le=120
+    )
+    bitrix24_connection_ttl_seconds: int = Field(
+        default=600, alias="BITRIX24_CONNECTION_TTL_SECONDS", ge=60, le=3600
+    )
+    bitrix24_connection_max_attempts: int = Field(
+        default=5, alias="BITRIX24_CONNECTION_MAX_ATTEMPTS", ge=1, le=10
+    )
+    bitrix24_expiration_scan_interval_seconds: float = Field(
+        default=60.0,
+        alias="BITRIX24_EXPIRATION_SCAN_INTERVAL_SECONDS",
+        ge=10,
+        le=3600,
+    )
+    bitrix24_tool_search_deals: str | None = Field(default=None, alias="BITRIX24_TOOL_SEARCH_DEALS")
+    bitrix24_tool_get_deal: str | None = Field(default=None, alias="BITRIX24_TOOL_GET_DEAL")
+    bitrix24_tool_update_deal: str | None = Field(default=None, alias="BITRIX24_TOOL_UPDATE_DEAL")
+    bitrix24_tool_list_tasks: str | None = Field(default=None, alias="BITRIX24_TOOL_LIST_TASKS")
+    bitrix24_tool_get_task: str | None = Field(default=None, alias="BITRIX24_TOOL_GET_TASK")
+    bitrix24_tool_create_task: str | None = Field(default=None, alias="BITRIX24_TOOL_CREATE_TASK")
+    bitrix24_tool_update_task: str | None = Field(default=None, alias="BITRIX24_TOOL_UPDATE_TASK")
+    macwhisper_webhook_enabled: bool = Field(
+        default=False, alias="MACWHISPER_WEBHOOK_ENABLED"
+    )
+    macwhisper_public_base_url: str | None = Field(
+        default=None, alias="MACWHISPER_PUBLIC_BASE_URL"
+    )
+    macwhisper_max_payload_bytes: int = Field(
+        default=600_000, alias="MACWHISPER_MAX_PAYLOAD_BYTES", ge=1024, le=2_000_000
+    )
+    macwhisper_default_language: str = Field(
+        default="pt-BR", alias="MACWHISPER_DEFAULT_LANGUAGE", min_length=2, max_length=20
+    )
 
     @field_validator("supabase_url")
     @classmethod
@@ -274,6 +317,35 @@ class Settings(BaseSettings):
             raise ValueError(f"Configuração Composio incompleta: {', '.join(missing)}")
         if not str(self.composio_callback_url).startswith("https://"):
             raise ValueError("COMPOSIO_CALLBACK_URL deve usar HTTPS")
+        return self
+
+    @model_validator(mode="after")
+    def validate_bitrix24_configuration(self) -> Settings:
+        if not self.bitrix24_mcp_enabled:
+            return self
+        required = {
+            "BITRIX24_PUBLIC_BASE_URL": self.bitrix24_public_base_url,
+            "BITRIX24_CREDENTIAL_ENCRYPTION_KEY": self.bitrix24_credential_encryption_key,
+        }
+        missing = [name for name, value in required.items() if value is None]
+        if missing:
+            raise ValueError(f"Configuração Bitrix24 MCP incompleta: {', '.join(missing)}")
+        if self.bitrix24_mcp_url != "https://mcp.bitrix24.com/mcp/":
+            raise ValueError("BITRIX24_MCP_URL deve apontar para o endpoint MCP oficial")
+        if not str(self.bitrix24_public_base_url).startswith("https://"):
+            raise ValueError("BITRIX24_PUBLIC_BASE_URL deve usar HTTPS")
+        return self
+
+    @model_validator(mode="after")
+    def validate_macwhisper_configuration(self) -> Settings:
+        if not self.macwhisper_webhook_enabled:
+            return self
+        if not self.macwhisper_public_base_url:
+            raise ValueError(
+                "MACWHISPER_PUBLIC_BASE_URL é obrigatória quando a integração está ativa"
+            )
+        if not self.macwhisper_public_base_url.startswith("https://"):
+            raise ValueError("MACWHISPER_PUBLIC_BASE_URL deve usar HTTPS")
         return self
 
     @property

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agents_backend.auth import Identity, RequestContext
 from agents_backend.config import Settings, get_settings
 from agents_backend.errors import ConflictError, NotFoundError
+from agents_backend.integrations.macwhisper.service import active_credential_id
 from agents_backend.models import (
     AgentRun,
     AudioTranscriptionJob,
@@ -33,7 +34,7 @@ from .phone_numbers import whatsapp_phone_aliases
 from .providers import API_PROVIDER, TELEGRAM_PROVIDER, WHATSAPP_PROVIDER
 from .router import route_command
 from .runtime import ConversationAgent, ConversationAgentResult
-from .telegram_commands import handle_account_command
+from .telegram_commands import handle_account_command, response_contains_sensitive_credential
 
 
 def _pending_response(action: PendingAction | None) -> PendingActionResponse | None:
@@ -244,7 +245,13 @@ class ConversationService:
 
         inbound_id = inbound.id
         account_command = await handle_account_command(
-            session, context, inbound.content, self.settings
+            session, context, inbound.content, self.settings, provider=conversation.provider
+        )
+        sensitive_credential = response_contains_sensitive_credential(
+            inbound.content, account_command
+        )
+        sensitive_credential_id = (
+            await active_credential_id(session, context) if sensitive_credential else None
         )
         command = route_command(inbound.content) if account_command is None else None
         if account_command is not None:
@@ -284,7 +291,11 @@ class ConversationService:
             message_metadata={
                 "response_phase": (
                     "acknowledgement" if result.orchestration_task is not None else "final"
-                )
+                ),
+                "sensitive_content": sensitive_credential,
+                "sensitive_credential_id": (
+                    str(sensitive_credential_id) if sensitive_credential_id else None
+                ),
             },
         )
         session.add(outbound)
@@ -560,7 +571,13 @@ class ConversationService:
             workspace_id=conversation.workspace_id,
         )
         account_command = await handle_account_command(
-            session, context, inbound.content, self.settings
+            session, context, inbound.content, self.settings, provider=conversation.provider
+        )
+        sensitive_credential = response_contains_sensitive_credential(
+            inbound.content, account_command
+        )
+        sensitive_credential_id = (
+            await active_credential_id(session, context) if sensitive_credential else None
         )
         command = route_command(inbound.content) if account_command is None else None
         if account_command is not None:
@@ -591,7 +608,11 @@ class ConversationService:
             message_metadata={
                 "response_phase": (
                     "acknowledgement" if result.orchestration_task is not None else "final"
-                )
+                ),
+                "sensitive_content": sensitive_credential,
+                "sensitive_credential_id": (
+                    str(sensitive_credential_id) if sensitive_credential_id else None
+                ),
             },
         )
         session.add(outbound)

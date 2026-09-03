@@ -918,6 +918,22 @@ async def _confirm_action(context: ToolContext, arguments: ConfirmActionArgument
             action.status = "failed"
             return external
         result = external
+    elif action.tool_name == "bitrix_external_action":
+        from agents_backend.integrations.bitrix24.service import execute_pending_action
+
+        external = await execute_pending_action(context, action)
+        if not external.ok:
+            action.status = "failed"
+            return external
+        result = external
+    elif action.tool_name == "activate_bitrix_connection":
+        from agents_backend.integrations.bitrix24.service import activate_pending_connection
+
+        activated = await activate_pending_connection(context, action)
+        if not activated.ok:
+            action.status = "failed"
+            return activated
+        result = activated
     elif action.tool_name == "activate_schedule":
         from agents_backend.scheduling.service import activate_pending_schedule
 
@@ -986,6 +1002,19 @@ async def _cancel_action(context: ToolContext, arguments: CancelActionArguments)
             if external is not None:
                 external.status = "cancelled"
                 external.completed_at = datetime.now(UTC)
+    elif action.tool_name == "bitrix_external_action":
+        from agents_backend.models import ExternalAction
+
+        external_id = action.arguments.get("external_action_id")
+        if external_id:
+            external = await context.session.get(ExternalAction, uuid.UUID(str(external_id)))
+            if external is not None:
+                external.status = "cancelled"
+                external.completed_at = datetime.now(UTC)
+    elif action.tool_name == "activate_bitrix_connection":
+        from agents_backend.integrations.bitrix24.service import cancel_pending_connection
+
+        await cancel_pending_connection(context, action)
     elif action.tool_name == "activate_schedule":
         from agents_backend.scheduling.service import cancel_pending_schedule
 

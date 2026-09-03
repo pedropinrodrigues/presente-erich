@@ -1,0 +1,1 @@
+"""MacWhisper custom webhook integration."""

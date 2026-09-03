@@ -10,7 +10,9 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from agents_backend.api.bitrix24_routes import router as bitrix24_router
 from agents_backend.api.invitation_routes import router as invitation_router
+from agents_backend.api.macwhisper_routes import router as macwhisper_router
 from agents_backend.api.routes import router
 from agents_backend.api.telegram_routes import router as telegram_router
 from agents_backend.api.whatsapp_routes import router as whatsapp_router
@@ -41,6 +43,8 @@ def create_app() -> FastAPI:
         try:
             response = await call_next(request)  # type: ignore[operator]
             response.headers["x-request-id"] = request_id
+            if request.url.path.startswith("/v1/integrations/macwhisper/webhooks/"):
+                response.headers["Cache-Control"] = "no-store"
             return response
         finally:
             request_id_context.reset(token)
@@ -84,7 +88,9 @@ def create_app() -> FastAPI:
         )
 
     application.include_router(router)
+    application.include_router(bitrix24_router)
     application.include_router(invitation_router)
+    application.include_router(macwhisper_router)
     application.include_router(telegram_router)
     application.include_router(whatsapp_router)
     return application

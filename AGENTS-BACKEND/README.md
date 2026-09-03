@@ -136,6 +136,26 @@ Uma ação R2 fica pendente e só é executada depois de uma confirmação expl�
 O modelo nunca recebe API keys ou tokens OAuth: o backend chama uma sessão MCP limitada às tools da
 intenção, e o Composio guarda as credenciais da conta.
 
+## Conectar Bitrix24 por MCP
+
+Com `BITRIX24_MCP_ENABLED=true`, o usuário pode pedir “conecte meu Bitrix24”. O backend devolve um
+link temporário: o estado secreto fica no fragmento da URL, a página envia o token somente no corpo
+HTTPS e o valida em `https://mcp.bitrix24.com/mcp/`. Depois da validação, o token é armazenado com
+Fernet e a conexão só fica ativa quando o usuário envia `confirmo` em uma nova mensagem no canal.
+
+CRM e tarefas usam um catálogo local. Leituras são R0; criação e alteração são R2 e exigem nova
+confirmação. Os slugs `BITRIX24_TOOL_*` devem ser preenchidos com os nomes revisados retornados por
+`list_tools` no tenant piloto; slugs vazios não são oferecidos ao agente. Consulte
+`docs/16-bitrix24-mcp-integration-plan.md` para configuração, segurança e rollout.
+
+## Enviar transcrições do MacWhisper
+
+Com `MACWHISPER_WEBHOOK_ENABLED=true`, um usuário já vinculado ao Telegram envia `/macwhisper` e
+recebe uma única vez sua URL de Custom Webhook. O backend guarda somente o hash do segredo,
+transforma `{title, transcript}` em uma ingestão idempotente e redige a URL persistida depois da
+entrega no Telegram. `/revogarmacwhisper` invalida a URL imediatamente. Consulte
+`docs/17-macwhisper-new-user-guide.md` para o onboarding.
+
 Para testar e publicar o callback OAuth:
 
 ```bash
@@ -184,3 +204,7 @@ programadas.
   Telegram com AssemblyAI.
 - `docs/15-web-research.md`: pesquisa atual na internet pelo Responses API, fontes, limites e
   segurança.
+- `docs/16-bitrix24-mcp-integration-plan.md`: arquitetura, segurança, fases e critérios para
+  integrar CRM e tarefas pelo MCP oficial do Bitrix24.
+- `docs/17-macwhisper-new-user-guide.md`: onboarding de uma nova conta pelo Telegram e configuração
+  segura do Custom Webhook do MacWhisper.

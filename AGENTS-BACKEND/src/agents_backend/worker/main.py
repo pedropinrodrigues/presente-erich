@@ -65,6 +65,7 @@ async def _worker_cycle(
     telegram_audio_client: TelegramClient | None,
     assemblyai_client: AssemblyAIClient,
     scan_daily_conversation_memory: bool,
+    scan_bitrix_connections: bool,
     stage: list[str],
 ) -> bool:
     processed = False
@@ -120,6 +121,13 @@ async def _worker_cycle(
             if scheduled_run is not None:
                 await process_scheduled_run_job(session, scheduled_run, settings)
                 processed = True
+    if settings.bitrix24_mcp_enabled and scan_bitrix_connections:
+        from agents_backend.integrations.bitrix24.service import expire_stale_connections
+
+        stage[0] = "bitrix24_connection_expiration"
+        async with get_session_factory()() as session:
+            if await expire_stale_connections(session):
+                processed = True
     if scan_daily_conversation_memory:
         stage[0] = "daily_conversation_memory"
         async with get_session_factory()() as session:
@@ -159,6 +167,7 @@ async def worker_loop() -> None:
     consecutive_failures = 0
     last_heartbeat = 0.0
     last_daily_memory_scan = 0.0
+    last_bitrix_connection_scan = 0.0
     stage = ["startup"]
     logger.info(
         "worker_started",
@@ -173,6 +182,10 @@ async def worker_loop() -> None:
                 time.monotonic() - last_daily_memory_scan
                 >= settings.daily_conversation_memory_scan_interval_seconds
             )
+            scan_bitrix_connections = (
+                time.monotonic() - last_bitrix_connection_scan
+                >= settings.bitrix24_expiration_scan_interval_seconds
+            )
             async with asyncio.timeout(settings.worker_cycle_timeout_seconds):
                 processed = await _worker_cycle(
                     settings=settings,
@@ -185,10 +198,13 @@ async def worker_loop() -> None:
                     telegram_audio_client=telegram_audio_client,
                     assemblyai_client=assemblyai_client,
                     scan_daily_conversation_memory=scan_daily_memory,
+                    scan_bitrix_connections=scan_bitrix_connections,
                     stage=stage,
                 )
             if scan_daily_memory:
                 last_daily_memory_scan = time.monotonic()
+            if scan_bitrix_connections:
+                last_bitrix_connection_scan = time.monotonic()
             consecutive_failures = 0
             if time.monotonic() - last_heartbeat >= settings.worker_heartbeat_interval_seconds:
                 stage[0] = "heartbeat"

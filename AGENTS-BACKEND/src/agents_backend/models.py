@@ -511,6 +511,36 @@ class ChannelInvite(Base):
     )
 
 
+class MacWhisperWebhookCredential(Base):
+    __tablename__ = "macwhisper_webhook_credentials"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_macwhisper_webhook_token_hash"),
+        Index(
+            "ix_macwhisper_webhook_scope",
+            "workspace_id",
+            "user_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    request_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ChannelMessage(Base):
     __tablename__ = "channel_messages"
     __table_args__ = (
@@ -766,6 +796,12 @@ class ExternalIntegration(Base):
     auth_config_id: Mapped[str] = mapped_column(String(100), nullable=False)
     connected_account_id: Mapped[str] = mapped_column(String(100), nullable=False)
     composio_session_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    credential_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    credential_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    credential_kind: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    credential_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
     account_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -817,11 +853,19 @@ class ExternalConnectionRequest(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     composio_request_id: Mapped[str] = mapped_column(String(100), nullable=False)
     callback_state_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channel_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    orchestration_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration_tasks.id", ondelete="SET NULL"), nullable=True
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ExternalAction(Base):

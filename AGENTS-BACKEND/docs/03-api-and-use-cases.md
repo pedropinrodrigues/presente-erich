@@ -43,6 +43,7 @@ POST   /webhooks/telegram
 POST   /v1/channels/whatsapp/accounts
 GET    /webhooks/whatsapp
 POST   /webhooks/whatsapp
+POST   /v1/integrations/macwhisper/webhooks/{token}
 ```
 
 `/webhooks/telegram` exige `X-Telegram-Bot-Api-Secret-Token`. As rotas WhatsApp continuam
@@ -82,6 +83,18 @@ Retorna `201` na primeira persistência e `200` em repetição idempotente:
 ```json
 { "source_id": "uuid", "status": "received", "idempotent_replay": false }
 ```
+
+### `POST /v1/integrations/macwhisper/webhooks/{token}`
+
+Endpoint público autenticado pela URL pessoal gerada com `/macwhisper`. Recebe o contrato atual do
+Custom Webhook:
+
+```json
+{ "title": "Reunião Atlas", "transcript": "Texto completo" }
+```
+
+Retorna `202` na primeira ingestão e `200` para repetição idempotente. O token não deve aparecer em
+logs ou documentação e pode ser invalidado com `/revogarmacwhisper`.
 
 ### `POST /v1/memory/ask`
 

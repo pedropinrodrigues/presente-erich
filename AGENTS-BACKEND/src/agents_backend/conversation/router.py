@@ -13,7 +13,7 @@ _HELP_TEXT = (
     "Posso consultar sua memória e suas pendências. Também posso encaminhar pedidos para guardar "
     "ou corrigir informações e, conforme novas integrações forem adicionadas, executar automações. "
     "Para ações, aviso primeiro que recebi o pedido e envio o resultado depois. Comandos de conta: "
-    "/convidar, /convites, /revogar e /minhaconta."
+    "/convidar, /convites, /revogar, /minhaconta, /macwhisper e /revogarmacwhisper."
 )
 
 

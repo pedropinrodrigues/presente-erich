@@ -234,6 +234,10 @@ class OrchestrationAgent:
             from agents_backend.integrations.composio.service import composio_tool_specs
 
             specs.extend(composio_tool_specs(task.allowed_capabilities))
+        if self.settings.bitrix24_mcp_enabled:
+            from agents_backend.integrations.bitrix24.service import bitrix24_tool_specs
+
+            specs.extend(bitrix24_tool_specs(task.allowed_capabilities, self.settings))
         scheduled_spec = (
             task.routing_context.get("schedule_spec")
             if task.routing_context.get("route") == "scheduled"
