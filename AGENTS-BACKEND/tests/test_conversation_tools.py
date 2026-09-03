@@ -49,6 +49,8 @@ def test_luna_knows_onboarding_and_command_catalog() -> None:
     assert "/ajuda e /help" in ROUTING_INSTRUCTIONS
     assert "/macwhisper cria uma URL pessoal" in ROUTING_INSTRUCTIONS
     assert "/vincular CODIGO" in ROUTING_INSTRUCTIONS
+    assert "/desativarconta ID" in ROUTING_INSTRUCTIONS
+    assert "/reativarconta ID" in ROUTING_INSTRUCTIONS
     assert "são administrativos" in ROUTING_INSTRUCTIONS
 
 

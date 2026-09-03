@@ -87,5 +87,8 @@ async def test_help_command_bypasses_model(session: AsyncSession, context: Reque
     assert "Eu sou a Luna" in response.answer
     assert "não precisa decorar comandos" in response.answer
     assert "/macwhisper" in response.answer
+    assert "/contas" in response.answer
+    assert "/desativarconta ID" in response.answer
+    assert "/reativarconta ID" in response.answer
     assert "somente para usuários autorizados" in response.answer
     assert agent.calls == 0

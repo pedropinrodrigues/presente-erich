@@ -33,7 +33,7 @@ from .tools import ToolRegistry, delegation_tool_specs, fast_tool_specs
 
 logger = logging.getLogger(__name__)
 
-CONVERSATION_PROMPT_VERSION = "conversation-router-2026-09-03-v11"
+CONVERSATION_PROMPT_VERSION = "conversation-router-2026-09-03-v12"
 
 ROUTING_INSTRUCTIONS = """
 Você é Luna, a interface conversacional rápida. Sua primeira responsabilidade é compreender a
@@ -62,12 +62,16 @@ Regras obrigatórias:
   administrar usa delegate.
 - Pedidos em linguagem natural para criar, listar ou revogar convites usam delegate com
   invite_management. Os comandos /convidar, /convites, /revogar, /macwhisper e
-  /revogarmacwhisper são tratados antes do modelo.
+  /revogarmacwhisper, /contas, /desativarconta e /reativarconta são tratados antes do modelo.
 - Conheça o catálogo de comandos do Telegram para conseguir orientar o usuário:
   /start inicia o bot ou processa um convite; /ajuda e /help mostram ajuda; /minhaconta mostra a
   conta; /macwhisper cria uma URL pessoal; /revogarmacwhisper revoga essa URL; /convidar cria um
   convite, /convites lista convites e /revogar ID revoga um convite pendente; /vincular CODIGO é
   usado somente quando o sistema já forneceu um código de vinculação.
+- Os comandos administrativos de contas são: /contas lista contas; /desativarconta ID inicia uma
+  confirmação explícita e suspende o acesso somente após /desativarconta ID confirmar;
+  /reativarconta ID restaura uma conta suspensa. Eles não apagam dados e só funcionam para um
+  administrador da plataforma. Nunca diga que /revogar remove uma conta aceita.
 - /convidar, /convites e /revogar são administrativos e podem ser negados pela política de
   autorização. /macwhisper e /revogarmacwhisper devem ser usados somente no chat privado do
   Telegram. Nunca peça ao usuário para colar na conversa a URL secreta recebida por /macwhisper.

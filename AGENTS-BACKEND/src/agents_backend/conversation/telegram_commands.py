@@ -4,6 +4,12 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agents_backend.accounts.admin_service import (
+    disable_account,
+    get_managed_account,
+    list_accounts,
+    reactivate_account,
+)
 from agents_backend.auth import RequestContext
 from agents_backend.config import Settings
 from agents_backend.errors import AppError
@@ -32,6 +38,14 @@ def response_contains_sensitive_credential(message: str, response: str | None) -
     )
 
 
+def _account_label(display_name: str | None, user_id: uuid.UUID) -> str:
+    return display_name.strip() if display_name and display_name.strip() else str(user_id)
+
+
+def _status_label(status: str) -> str:
+    return {"active": "ativa", "disabled": "desativada", "deleted": "excluída"}.get(status, status)
+
+
 async def handle_account_command(
     session: AsyncSession,
     context: RequestContext,
@@ -49,6 +63,9 @@ async def handle_account_command(
         "/minhaconta",
         "/macwhisper",
         "/revogarmacwhisper",
+        "/contas",
+        "/desativarconta",
+        "/reativarconta",
     }:
         return None
     try:
@@ -75,6 +92,59 @@ async def handle_account_command(
                 f"{credential.webhook_url}\n\n"
                 "Cole em MacWhisper → Settings → Integrations → Custom Webhook e toque em Test. "
                 "Esta URL funciona como senha: não compartilhe."
+            )
+        if command == "/contas":
+            accounts = await list_accounts(session, context, settings)
+            lines = [f"Contas da plataforma ({len(accounts)}):"]
+            for account in accounts:
+                name = _account_label(account.display_name, account.user_id)
+                admin = " — administradora" if account.platform_admin else ""
+                lines.append(
+                    f"• {name} — {_status_label(account.status)}{admin}\n  ID: {account.user_id}"
+                )
+            return "\n".join(lines)
+        if command in {"/desativarconta", "/reativarconta"}:
+            arguments = parts[1].split() if len(parts) == 2 else []
+            usage = (
+                "Use /desativarconta ID_DA_CONTA."
+                if command == "/desativarconta"
+                else "Use /reativarconta ID_DA_CONTA."
+            )
+            expected_lengths = {1, 2} if command == "/desativarconta" else {1}
+            if len(arguments) not in expected_lengths:
+                return usage
+            try:
+                target_user_id = uuid.UUID(arguments[0])
+            except ValueError:
+                return f"ID de conta inválido. Consulte /contas.\n\n{usage}"
+            if command == "/reativarconta":
+                account = await reactivate_account(session, context, target_user_id, settings)
+                return (
+                    f"Conta reativada: {_account_label(account.display_name, account.user_id)}.\n"
+                    f"ID: {account.user_id}"
+                )
+            if len(arguments) == 1:
+                account = await get_managed_account(session, context, target_user_id, settings)
+                if account.user_id == context.identity.user_id:
+                    return "Você não pode desativar sua própria conta."
+                if account.platform_admin:
+                    return "Outra conta administradora não pode ser desativada por este comando."
+                if account.status == "disabled":
+                    return "A conta já está desativada."
+                return (
+                    "Confirme a suspensão desta conta:\n"
+                    f"• {_account_label(account.display_name, account.user_id)}\n"
+                    f"• ID: {account.user_id}\n\n"
+                    "Nenhum dado será apagado. Para confirmar, envie exatamente:\n"
+                    f"/desativarconta {account.user_id} confirmar"
+                )
+            if arguments[1].casefold() != "confirmar":
+                return usage
+            account = await disable_account(session, context, target_user_id, settings)
+            return (
+                f"Conta desativada: {_account_label(account.display_name, account.user_id)}.\n"
+                f"ID: {account.user_id}\n"
+                "O acesso foi suspenso e pode ser restaurado com /reativarconta."
             )
         if command == "/convidar":
             invite = await create_telegram_invite(session, context, settings)

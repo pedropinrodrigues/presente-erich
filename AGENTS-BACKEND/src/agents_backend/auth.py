@@ -90,6 +90,9 @@ async def resolve_workspace(session: AsyncSession, identity: Identity) -> Reques
         )
     if internal_user_id is None:
         raise RuntimeError("Não foi possível resolver a identidade interna")
+    internal_user = await session.get(AppUser, internal_user_id)
+    if internal_user is None or internal_user.status != "active":
+        raise UnauthorizedError("Esta conta está desativada.")
     internal_identity = Identity(user_id=internal_user_id, email=identity.email)
     settings = get_settings()
     admin = await session.get(PlatformAdmin, internal_user_id)

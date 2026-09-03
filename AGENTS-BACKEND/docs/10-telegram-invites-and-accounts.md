@@ -386,8 +386,8 @@ dados da pessoa que aceitou.
 ### `RevokeTelegramInvite`
 
 Só revoga convite `pending`. Um administrador pode revogar qualquer convite pendente; uma futura
-política descentralizada poderá limitar contas comuns aos próprios convites. Após o aceite, nem o
-administrador nem o convidante podem desativar a conta criada por meio do convite.
+política descentralizada poderá limitar contas comuns aos próprios convites. Após o aceite, revogar
+o convite não afeta a conta criada. A suspensão de uma conta exige `/desativarconta` e confirmação.
 
 ### Atalhos do bot
 
@@ -398,7 +398,9 @@ administrador nem o convidante podem desativar a conta criada por meio do convit
 | `/revogar` | Apresenta convites pendentes para revogação. |
 | `/minhaconta` | Mostra perfil e canais vinculados da própria conta. |
 | `/ajuda` | Mostra capacidades e comandos. |
-| `/apagarconta` | Inicia o fluxo destrutivo com confirmação obrigatória. |
+| `/contas` | Lista contas ativas e desativadas; somente administrador. |
+| `/desativarconta ID` | Mostra a confirmação; a mesma chamada com `confirmar` suspende sem apagar dados. |
+| `/reativarconta ID` | Restaura uma conta suspensa e seus canais anteriormente ativos. |
 
 Pedidos equivalentes em linguagem natural podem usar tools tipadas:
 
@@ -449,11 +451,13 @@ calling e timeout. Falha de provedor deve produzir retry observável, nunca cons
 - O convite não contém IDs internos.
 - Tools recebem o `RequestContext` resolvido pelo canal.
 - Toda consulta continua filtrada por `workspace_id`.
-- O administrador pode revogar somente convites ainda pendentes.
+- O administrador pode revogar convites ainda pendentes e suspender ou reativar contas pelos
+  comandos dedicados, sem acessar o conteúdo do workspace pessoal.
 - O papel de administrador vem de `platform_admins` e da allowlist de bootstrap
   `PLATFORM_ADMIN_USER_IDS`; ele nunca é inferido por um modelo.
-- Uma conta aceita não fica subordinada ao convidante.
-- Auditoria registra criação, aceite e revogação sem conteúdo de mensagens.
+- Uma conta aceita não compartilha workspace nem dados com o convidante; somente o administrador da
+  plataforma pode suspender seu acesso.
+- Auditoria registra criação, aceite, revogação, suspensão e reativação sem conteúdo de mensagens.
 
 ## Conta e recuperação
 

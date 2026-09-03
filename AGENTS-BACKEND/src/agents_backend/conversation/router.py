@@ -25,6 +25,10 @@ _HELP_TEXT = (
     "• /convidar — cria um convite.\n"
     "• /convites — lista seus convites.\n"
     "• /revogar ID — revoga um convite pendente.\n\n"
+    "Gestão de contas, somente para administradores:\n"
+    "• /contas — lista as contas da plataforma.\n"
+    "• /desativarconta ID — inicia a suspensão de uma conta.\n"
+    "• /reativarconta ID — restaura uma conta suspensa.\n\n"
     "Se estiver em dúvida, diga o que deseja fazer e eu explico o próximo passo."
 )
 
