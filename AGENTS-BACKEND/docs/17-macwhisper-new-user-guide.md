@@ -5,8 +5,8 @@
 Este guia explica como um novo usuário cria sua conta pessoal pelo convite do Telegram e prepara o
 MacWhisper para enviar transcrições ao agente.
 
-> Estado em 03/09/2026: cadastro, comandos e adaptador implementados no repositório. O uso real
-> depende de aplicar a migration `20260903_0012`, configurar o ambiente e publicar API e worker.
+> Estado em 03/09/2026: cadastro, comandos, adaptador e migration `20260903_0012` publicados em
+> produção na revisão `3c5c6d8`. API e worker estão ativos no Northflank.
 > Não use `/v1/transcripts` como Webhook URL, pois esse endpoint possui outro contrato.
 
 ## Antes de começar
@@ -15,7 +15,7 @@ O novo usuário precisa de:
 
 - aplicativo Telegram com acesso ao chat privado do bot;
 - MacWhisper Pro 13.6 ou superior;
-- uma URL pessoal de webhook gerada pelo comando `/macwhisper` depois da publicação;
+- uma URL pessoal de webhook gerada pelo comando `/macwhisper`;
 - conexão HTTPS para enviar as transcrições ao backend.
 
 O convite do Telegram e a futura URL do webhook são credenciais diferentes. Não publique, não
@@ -65,12 +65,12 @@ metadados internos.
 Referência oficial:
 [Integrating MacWhisper with other services](https://docs.macwhisper.com/article/53-integrating-macwhisper-with-other-services).
 
-## 3. Configurar a URL pessoal quando ela estiver disponível
+## 3. Configurar a URL pessoal
 
 ### Onde o usuário pegará o segredo pessoal
 
-O segredo não será criado pelo administrador nem enviado por e-mail. Depois que esta versão estiver
-publicada, o próprio usuário deverá abrir o chat privado do bot e enviar:
+O segredo não será criado pelo administrador nem enviado por e-mail. O próprio usuário deverá abrir
+o chat privado do bot e enviar:
 
 ```text
 /macwhisper
@@ -96,9 +96,8 @@ Para invalidar a URL e impedir novos envios, o usuário deverá enviar:
 Depois da revogação, `/macwhisper` gerará uma nova URL; a URL anterior deixará de funcionar e deverá
 ser substituída no aplicativo.
 
-> **Aguardando publicação:** os comandos `/macwhisper` e `/revogarmacwhisper` e o endpoint receptor
-> já existem no código, mas não funcionarão no bot hospedado até a migration, configuração e deploy.
-> Antes disso, não tente usar o token do convite ou `/v1/transcripts` como alternativa.
+> **Disponível em produção:** não use o token do convite ou `/v1/transcripts` como alternativa. A
+> única credencial correta é a URL pessoal devolvida pelo comando `/macwhisper`.
 
 ### Configuração no aplicativo
 
@@ -158,7 +157,7 @@ somente o hash da credencial. O segredo não aparece em listagens ou arquivos ve
 - [ ] MacWhisper Pro atualizado.
 - [ ] O adaptador MacWhisper e os comandos do bot foram publicados.
 - [ ] `/macwhisper` gerou a URL pessoal no chat privado do usuário.
-- [ ] URL pessoal de webhook recebida após a publicação do adaptador.
+- [ ] URL pessoal de webhook recebida pelo comando `/macwhisper`.
 - [ ] Teste do Custom Webhook mostra **Success**.
 - [ ] Transcrição curta aparece no agente.
 - [ ] Envio automático ativado somente após o teste.
