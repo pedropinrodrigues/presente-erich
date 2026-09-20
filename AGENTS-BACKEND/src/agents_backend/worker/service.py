@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agents_backend.integrations.macwhisper.service import enqueue_processing_notification
 from agents_backend.logging import job_id_context
 from agents_backend.memory.daily_conversations import filter_daily_conversation_extraction
 from agents_backend.memory.service import consolidate_extraction
@@ -16,6 +17,24 @@ from agents_backend.models import Evidence, Fact, Job, ModelRun, Source
 from agents_backend.schemas import ExtractionResult
 
 logger = logging.getLogger(__name__)
+
+
+async def _notify_macwhisper_result(
+    session: AsyncSession,
+    source: Source,
+    *,
+    success: bool,
+) -> None:
+    if source.source_type != "macwhisper":
+        return
+    try:
+        async with session.begin_nested():
+            await enqueue_processing_notification(session, source, success=success)
+    except Exception:
+        logger.exception(
+            "macwhisper_notification_enqueue_failed",
+            extra={"source_id": str(source.id), "success": success},
+        )
 
 
 async def claim_job(session: AsyncSession, worker_id: str) -> Job | None:
@@ -127,6 +146,7 @@ async def process_job(session: AsyncSession, job: Job, gateway: ModelGateway) ->
         job.status = "completed"
         job.locked_by = None
         job.lease_expires_at = None
+        await _notify_macwhisper_result(session, source, success=True)
         await session.commit()
     except Exception as exc:
         await session.rollback()
@@ -144,6 +164,8 @@ async def process_job(session: AsyncSession, job: Job, gateway: ModelGateway) ->
         if source is not None:
             source.status = "received" if retry else "failed"
             source.error_code = type(exc).__name__
+            if not retry:
+                await _notify_macwhisper_result(session, source, success=False)
         await session.commit()
         logger.exception("job_processing_failed")
     finally:

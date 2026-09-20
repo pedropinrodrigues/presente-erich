@@ -112,8 +112,20 @@ https://API_PUBLICA/v1/integrations/macwhisper/webhooks/SEGREDO_PESSOAL
 3. Clique em **Test**.
 4. Confirme que o MacWhisper mostra **Success**.
 5. Faça uma transcrição curta sem informação sensível.
-6. Confirme no agente que a transcrição foi recebida.
+6. Aguarde a confirmação automática do bot no Telegram. Ela só será enviada depois que a
+   transcrição tiver sido salva e processada na memória.
 7. Ative **Automatically send after finished transcription** se quiser o envio automático.
+
+Quando tudo funcionar, o bot enviará uma mensagem semelhante a:
+
+```text
+✅ MacWhisper recebido: "Título da transcrição".
+
+A transcrição foi salva e processada na sua memória. Você já pode me perguntar sobre esse conteúdo.
+```
+
+Se o processamento falhar definitivamente, o bot avisará que o conteúdo não foi adicionado à
+memória. Reenvios idênticos do MacWhisper não geram fontes nem confirmações duplicadas.
 
 Não coloque nessa tela:
 
@@ -147,7 +159,8 @@ somente o hash da credencial. O segredo não aparece em listagens ou arquivos ve
 | O botão Test não aparece | Verifique se a URL começa com `https://` e está completa. |
 | `Not Found` | A rota ainda não foi publicada, a URL está incorreta ou a credencial foi revogada. Gere outra com `/macwhisper` se necessário. |
 | `Invalid request` | O aplicativo pode estar enviando outro payload; registre a versão e procure suporte. |
-| Test funciona, mas nada é enviado | Ative **Automatically send after finished transcription**. |
+| Test funciona, mas não chega confirmação no Telegram | Aguarde alguns segundos. Se persistir, confirme que a conta do Telegram continua ativa e informe ao suporte o título e o horário, sem compartilhar a URL secreta. |
+| Test funciona, mas novas transcrições não são enviadas | Ative **Automatically send after finished transcription**. |
 | Transcrição duplicada | Não reenvie; informe título e horário ao suporte para verificar a idempotência. |
 
 ## Checklist final
@@ -159,7 +172,7 @@ somente o hash da credencial. O segredo não aparece em listagens ou arquivos ve
 - [ ] `/macwhisper` gerou a URL pessoal no chat privado do usuário.
 - [ ] URL pessoal de webhook recebida pelo comando `/macwhisper`.
 - [ ] Teste do Custom Webhook mostra **Success**.
-- [ ] Transcrição curta aparece no agente.
+- [ ] O bot confirma no Telegram que a transcrição foi salva e processada.
 - [ ] Envio automático ativado somente após o teste.
 
 ## Responsabilidades
@@ -168,5 +181,5 @@ somente o hash da credencial. O segredo não aparece em listagens ou arquivos ve
 | --- | --- |
 | Administrador | Criar e compartilhar somente o convite de cadastro do Telegram. |
 | Novo usuário | Aceitar o convite, executar `/macwhisper` e configurar a URL recebida. |
-| Backend | Gerar o segredo, guardar apenas seu hash, receber o webhook e permitir revogação. |
+| Backend | Gerar o segredo, guardar apenas seu hash, processar o webhook e confirmar o resultado no Telegram. |
 | MacWhisper | Enviar `title` e `transcript` para a URL configurada. |

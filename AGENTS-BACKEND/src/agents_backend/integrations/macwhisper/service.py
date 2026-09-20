@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents_backend.auth import Identity, RequestContext
@@ -18,7 +18,11 @@ from agents_backend.ingestion.service import ingest_transcript
 from agents_backend.models import (
     AppUser,
     AuditEvent,
+    ChannelAccount,
+    ChannelMessage,
+    Conversation,
     MacWhisperWebhookCredential,
+    OutboxMessage,
     Source,
 )
 from agents_backend.schemas import IngestTranscriptResponse, TranscriptEvent
@@ -248,3 +252,108 @@ async def ingest_webhook(
     credential.last_used_at = datetime.now(UTC)
     await session.commit()
     return result
+
+
+async def enqueue_processing_notification(
+    session: AsyncSession,
+    source: Source,
+    *,
+    success: bool,
+) -> bool:
+    """Queue one Telegram result notification for a MacWhisper source."""
+    if source.source_type != "macwhisper":
+        return False
+    raw_credential_id = source.source_metadata.get("credential_id")
+    try:
+        credential_id = uuid.UUID(str(raw_credential_id))
+    except (TypeError, ValueError):
+        return False
+    credential = await session.scalar(
+        select(MacWhisperWebhookCredential).where(
+            MacWhisperWebhookCredential.id == credential_id,
+            MacWhisperWebhookCredential.workspace_id == source.workspace_id,
+        )
+    )
+    if credential is None:
+        return False
+    account = await session.scalar(
+        select(ChannelAccount)
+        .where(
+            ChannelAccount.workspace_id == source.workspace_id,
+            ChannelAccount.user_id == credential.user_id,
+            ChannelAccount.provider == "telegram",
+            ChannelAccount.active.is_(True),
+        )
+        .order_by(ChannelAccount.verified_at.desc(), ChannelAccount.created_at.desc())
+        .limit(1)
+    )
+    if account is None:
+        return False
+    conversation = await session.scalar(
+        select(Conversation)
+        .where(
+            Conversation.workspace_id == source.workspace_id,
+            Conversation.user_id == credential.user_id,
+            Conversation.provider == "telegram",
+            Conversation.status == "active",
+            or_(
+                Conversation.channel_account_id == account.id,
+                and_(
+                    Conversation.channel_account_id.is_(None),
+                    Conversation.external_thread_id == account.external_account_id,
+                ),
+            ),
+        )
+        .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
+        .limit(1)
+    )
+    if conversation is None:
+        return False
+    outcome = "processed" if success else "failed"
+    idempotency_key = f"macwhisper-notification:{source.id}:{outcome}"
+    existing = await session.scalar(
+        select(OutboxMessage).where(OutboxMessage.idempotency_key == idempotency_key)
+    )
+    if existing is not None:
+        return False
+    title = " ".join(str(source.source_metadata.get("title") or "Sem título").split())[:200]
+    if success:
+        text = (
+            f'✅ MacWhisper recebido: "{title}".\n\n'
+            "A transcrição foi salva e processada na sua memória. "
+            "Você já pode me perguntar sobre esse conteúdo."
+        )
+    else:
+        text = (
+            f'⚠️ Não consegui processar a transcrição "{title}".\n\n'
+            "O conteúdo não foi adicionado à memória. Tente enviá-lo novamente; "
+            "se o problema continuar, fale com o administrador."
+        )
+    outbound = ChannelMessage(
+        workspace_id=source.workspace_id,
+        conversation_id=conversation.id,
+        provider="telegram",
+        direction="outbound",
+        content=text,
+        status="queued",
+        message_metadata={
+            "response_phase": "macwhisper_processing_result",
+            "macwhisper_source_id": str(source.id),
+            "processing_outcome": outcome,
+        },
+    )
+    session.add(outbound)
+    await session.flush()
+    session.add(
+        OutboxMessage(
+            workspace_id=source.workspace_id,
+            conversation_id=conversation.id,
+            channel_message_id=outbound.id,
+            provider="telegram",
+            destination=account.external_account_id,
+            payload={"type": "text", "text": {"body": text}},
+            status="pending",
+            idempotency_key=idempotency_key,
+        )
+    )
+    return True

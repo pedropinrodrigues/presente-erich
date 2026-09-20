@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -30,7 +31,9 @@ from agents_backend.integrations.macwhisper.service import (
     revoke_webhook_credential,
 )
 from agents_backend.logging import SensitiveRequestPathFilter
+from agents_backend.model_gateway.client import GatewayResult
 from agents_backend.models import (
+    ChannelAccount,
     ChannelMessage,
     Conversation,
     Job,
@@ -38,6 +41,8 @@ from agents_backend.models import (
     OutboxMessage,
     Source,
 )
+from agents_backend.schemas import ExtractionResult
+from agents_backend.worker.service import process_job
 
 
 def macwhisper_settings():
@@ -51,6 +56,67 @@ def macwhisper_settings():
 
 def _token(webhook_url: str) -> str:
     return urlparse(webhook_url).path.rsplit("/", 1)[1]
+
+
+class EmptyExtractionGateway:
+    async def extract(
+        self,
+        transcript: str,
+        captured_at: str,
+        *,
+        source_type: str | None = None,
+    ) -> GatewayResult:
+        del transcript, captured_at, source_type
+        return GatewayResult(
+            value=ExtractionResult(entities=[], facts=[], commitments=[]),
+            provider_request_id="macwhisper-test",
+            model="test",
+            prompt_version="test",
+            schema_version="test",
+            duration_ms=1,
+            input_tokens=1,
+            output_tokens=1,
+        )
+
+
+class FailingExtractionGateway:
+    async def extract(
+        self,
+        transcript: str,
+        captured_at: str,
+        *,
+        source_type: str | None = None,
+    ) -> GatewayResult:
+        del transcript, captured_at, source_type
+        raise TimeoutError("synthetic MacWhisper failure")
+
+
+async def _telegram_conversation(
+    session: AsyncSession,
+    context: RequestContext,
+) -> Conversation:
+    account = ChannelAccount(
+        workspace_id=context.workspace_id,
+        user_id=context.identity.user_id,
+        provider="telegram",
+        external_account_id="123456",
+        verified_at=datetime.now(UTC),
+        active=True,
+    )
+    session.add(account)
+    await session.flush()
+    conversation = Conversation(
+        workspace_id=context.workspace_id,
+        user_id=context.identity.user_id,
+        channel_account_id=account.id,
+        provider="telegram",
+        external_thread_id=account.external_account_id,
+        status="active",
+        conversation_metadata={"chat_id": account.external_account_id},
+    )
+    session.add(conversation)
+    await session.commit()
+    return conversation
 
 
 @pytest.mark.asyncio
@@ -107,6 +173,82 @@ async def test_webhook_ingests_and_replays_transcript_idempotently(
     assert await revoke_webhook_credential(session, context) is True
     with pytest.raises(NotFoundError):
         await ingest_webhook(session, token, payload, settings)
+
+
+@pytest.mark.asyncio
+async def test_processed_webhook_notifies_user_in_telegram_once(
+    session: AsyncSession,
+    context: RequestContext,
+) -> None:
+    conversation = await _telegram_conversation(session, context)
+    settings = macwhisper_settings()
+    credential = await create_webhook_credential(session, context, settings)
+    assert credential.webhook_url is not None
+    result = await ingest_webhook(
+        session,
+        _token(credential.webhook_url),
+        MacWhisperWebhookPayload(
+            title="Reunião de produto",
+            transcript="A equipe decidiu publicar a nova versão na sexta-feira.",
+        ),
+        settings,
+    )
+    source = await session.get(Source, result.source_id)
+    job = await session.scalar(select(Job).where(Job.source_id == result.source_id))
+    assert source is not None and job is not None
+
+    await process_job(session, job, EmptyExtractionGateway())  # type: ignore[arg-type]
+    await process_job(session, job, EmptyExtractionGateway())  # type: ignore[arg-type]
+
+    notifications = list(
+        (
+            await session.scalars(
+                select(OutboxMessage).where(
+                    OutboxMessage.conversation_id == conversation.id,
+                    OutboxMessage.idempotency_key.like("macwhisper-notification:%"),
+                )
+            )
+        ).all()
+    )
+    assert len(notifications) == 1
+    assert notifications[0].status == "pending"
+    assert "salva e processada na sua memória" in notifications[0].payload["text"]["body"]
+    assert "Reunião de produto" in notifications[0].payload["text"]["body"]
+
+
+@pytest.mark.asyncio
+async def test_terminal_webhook_failure_notifies_user(
+    session: AsyncSession,
+    context: RequestContext,
+) -> None:
+    conversation = await _telegram_conversation(session, context)
+    settings = macwhisper_settings()
+    credential = await create_webhook_credential(session, context, settings)
+    assert credential.webhook_url is not None
+    result = await ingest_webhook(
+        session,
+        _token(credential.webhook_url),
+        MacWhisperWebhookPayload(
+            title="Reunião com falha",
+            transcript="Conteúdo sintético usado para validar o erro terminal.",
+        ),
+        settings,
+    )
+    job = await session.scalar(select(Job).where(Job.source_id == result.source_id))
+    assert job is not None
+    job.attempts = job.max_attempts
+    await session.commit()
+
+    await process_job(session, job, FailingExtractionGateway())  # type: ignore[arg-type]
+
+    notification = await session.scalar(
+        select(OutboxMessage).where(
+            OutboxMessage.conversation_id == conversation.id,
+            OutboxMessage.idempotency_key.like("macwhisper-notification:%:failed"),
+        )
+    )
+    assert notification is not None
+    assert "não foi adicionado à memória" in notification.payload["text"]["body"]
 
 
 @pytest.mark.asyncio
