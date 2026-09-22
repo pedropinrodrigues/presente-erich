@@ -31,7 +31,7 @@ from agents_backend.schemas import AgentToolUseResponse
 
 logger = logging.getLogger(__name__)
 
-ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-08-27-v12"
+ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-09-22-v13"
 
 ORCHESTRATION_INSTRUCTIONS = """
 Você é o agente orquestrador de tarefas de uma memória pessoal. Recebe uma tarefa persistida, com
@@ -80,6 +80,9 @@ Regras obrigatórias:
 - Para rotinas que apenas respondem ao próprio usuário, inclua deliver_to_user. Para briefings
   enriquecidos, inclua calendar_list_events e search_memory. Use account_scope
   all_connected_accounts em leituras gerais.
+- Quando uma rotina precisar de informações atuais da internet, inclua research_web nas tools e
+  deliver_to_user para entregar o resultado. A pesquisa fica limitada ao objetivo confirmado da
+  rotina e deve citar as fontes encontradas.
 - Não invente schedule_id. Use list_schedules antes de alterar, pausar, retomar, remover ou executar
   uma rotina quando o ID não estiver no contexto.
 - Em uma execução com route=scheduled, cumpra somente schedule_spec, use apenas as tools fornecidas

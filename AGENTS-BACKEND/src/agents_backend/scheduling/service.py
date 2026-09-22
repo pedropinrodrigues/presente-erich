@@ -38,7 +38,9 @@ LOCAL_SCHEDULE_TOOLS: dict[str, str] = {
     "search_memory": "R0",
     "get_entity": "R0",
     "list_open_commitments": "R0",
+    "research_web": "R0",
 }
+MEMORY_SCHEDULE_TOOLS = {"search_memory", "get_entity", "list_open_commitments"}
 SCHEDULE_TOOL_RISKS = {
     **LOCAL_SCHEDULE_TOOLS,
     **{policy.name: policy.risk for policy in POLICIES},
@@ -77,9 +79,7 @@ def _validate_tool_policy(spec: ScheduleSpec) -> str | None:
     disallowed = DISALLOWED_STANDING_TOOLS.intersection(spec.tool_policy.tools)
     if disallowed:
         return f"Tools destrutivas não podem ter autorização recorrente: {', '.join(disallowed)}"
-    memory_tools = {"search_memory", "get_entity", "list_open_commitments"}.intersection(
-        spec.tool_policy.tools
-    )
+    memory_tools = MEMORY_SCHEDULE_TOOLS.intersection(spec.tool_policy.tools)
     if memory_tools and not spec.context_policy.long_term_memory:
         return "Tools de memória exigem long_term_memory=true"
     if "search_memory" in memory_tools and spec.context_policy.maximum_memory_queries == 0:
@@ -100,8 +100,10 @@ def _validate_tool_policy(spec: ScheduleSpec) -> str | None:
 
 def _capabilities_for_spec(spec: ScheduleSpec) -> list[str]:
     capabilities = {"schedule_execution"}
-    if any(name in LOCAL_SCHEDULE_TOOLS for name in spec.tool_policy.tools):
+    if MEMORY_SCHEDULE_TOOLS.intersection(spec.tool_policy.tools):
         capabilities.add("memory_read")
+    if "research_web" in spec.tool_policy.tools:
+        capabilities.add("web_research")
     external = [policy for policy in POLICIES if policy.name in set(spec.tool_policy.tools)]
     capabilities.update(policy.capability for policy in external)
     return sorted(capabilities)

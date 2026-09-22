@@ -162,7 +162,7 @@ contrato estruturado validado pelo backend:
     "maximum_memory_queries": 8
   },
   "tool_policy": {
-    "tools": ["calendar_list_events", "search_memory", "deliver_to_user"],
+    "tools": ["calendar_list_events", "search_memory", "research_web", "deliver_to_user"],
     "account_scope": "all_connected_accounts",
     "account_ids": [],
     "max_risk": "R0",
@@ -278,9 +278,11 @@ Para “todo dia de manhã envie um resumo dos meus compromissos de hoje enrique
    status de resposta do próprio usuário.
 4. Para cada compromisso relevante, o agente extrai pessoas, empresas, projetos e palavras-chave.
 5. `search_memory` recupera fatos e compromissos atuais, sempre com evidências e limite por evento.
-6. O Terra produz texto simples para Telegram, separando agenda, contexto útil, conflitos e pontos
+6. `research_web` consulta informações atuais quando estiver explicitamente presente no grant da
+   rotina e devolve uma síntese com fontes citadas.
+7. O Terra produz texto simples para Telegram, separando agenda, contexto útil, conflitos e pontos
    de preparação. Ausência de memória é declarada sem invenção.
-7. O resultado é persistido como `ChannelMessage` outbound e entregue pela outbox.
+8. O resultado é persistido como `ChannelMessage` outbound e entregue pela outbox.
 
 O perfil geral do usuário é carregado novamente a cada run; a rotina não guarda uma cópia obsoleta
 da memória. Conteúdo de eventos e emails permanece dado não confiável e não pode alterar a rotina ou

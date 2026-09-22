@@ -49,9 +49,10 @@ credenciais não são incluídos na consulta. A tool não executa ações extern
 ## Política de acesso
 
 `web_research` recebe somente `research_web`. A intenção `compound` também pode pesquisar quando o
-pedido combina web com outro domínio. A capacidade não faz parte de `automation`, portanto rotinas
-programadas não pesquisam a internet nesta primeira versão; isso evita autorizações permanentes e
-custo recorrente implícito.
+pedido combina web com outro domínio. Rotinas programadas podem incluir `research_web` em sua
+política de tools. Como qualquer rotina que não seja um lembrete pontual simples, elas exigem a
+confirmação única do usuário antes da ativação; a autorização, o objetivo e o custo recorrente ficam
+presos à revisão confirmada.
 
 Com `WEB_RESEARCH_ENABLED=false`, a definição da tool não é enviada ao orquestrador.
 

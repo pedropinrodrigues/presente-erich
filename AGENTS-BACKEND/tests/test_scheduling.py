@@ -10,7 +10,11 @@ from sqlalchemy import func, select
 
 from agents_backend.auth import RequestContext
 from agents_backend.config import Settings
-from agents_backend.conversation.tools import ToolContext, ToolRegistry
+from agents_backend.conversation.tools import (
+    ToolContext,
+    ToolRegistry,
+    orchestration_tool_specs,
+)
 from agents_backend.models import (
     AgentRun,
     AutomationGrant,
@@ -34,6 +38,7 @@ from agents_backend.scheduling.schemas import (
     ScheduleTrigger,
 )
 from agents_backend.scheduling.service import (
+    _capabilities_for_spec,
     _validate_tool_policy,
     activate_pending_schedule,
     create_schedule,
@@ -124,6 +129,30 @@ def reminder_spec(start: datetime, *, include_calendar: bool = False) -> Schedul
     )
 
 
+def web_research_spec(start: datetime | None = None) -> ScheduleSpec:
+    data = daily_spec(start).model_dump(mode="json")
+    data["name"] = "Notícias diárias de tecnologia"
+    data["objective"] = "Pesquise as principais notícias de tecnologia e entregue com fontes."
+    data["context_policy"] = {
+        "user_profile": False,
+        "long_term_memory": False,
+        "maximum_memory_queries": 0,
+    }
+    data["tool_policy"] = {
+        "tools": ["research_web", "deliver_to_user"],
+        "account_scope": "primary",
+        "account_ids": [],
+        "max_risk": "R0",
+        "constraints": {
+            "recipient_emails": [],
+            "to_numbers": [],
+            "maximum_external_writes_per_run": 0,
+            "allow_attachments": False,
+        },
+    }
+    return ScheduleSpec.model_validate(data)
+
+
 async def records(session, context: RequestContext, content: str):
     conversation = Conversation(
         workspace_id=context.workspace_id,
@@ -204,6 +233,57 @@ def test_schedule_memory_policy_cannot_bypass_context_limits() -> None:
     assert _validate_tool_policy(ScheduleSpec.model_validate(data)) == (
         "search_memory exige maximum_memory_queries maior que zero"
     )
+
+
+def test_web_research_is_allowed_and_scoped_for_schedules() -> None:
+    spec = web_research_spec()
+
+    assert _validate_tool_policy(spec) is None
+    assert _capabilities_for_spec(spec) == ["schedule_execution", "web_research"]
+    names = {
+        definition["name"]
+        for definition in ToolRegistry(
+            orchestration_tool_specs(_capabilities_for_spec(spec))
+        ).definitions()
+    }
+    assert names == {"research_web"}
+
+
+@pytest.mark.asyncio
+async def test_web_research_schedule_requires_confirmation_and_persists_grant(
+    session, context
+) -> None:
+    settings = schedule_settings()
+    conversation, inbound, run = await records(
+        session,
+        context,
+        "Todo dia pesquise as principais notícias de tecnologia e me envie com as fontes.",
+    )
+    tool_context = ToolContext(
+        session=session,
+        request_context=context,
+        conversation=conversation,
+        inbound_message=inbound,
+        agent_run=run,
+        call_id="create-web-research-schedule",
+        idempotency_key="create-web-research-schedule-key",
+        settings=settings,
+    )
+
+    result = await create_schedule(
+        tool_context,
+        CreateScheduleArguments(spec=web_research_spec()),
+    )
+    schedule = await session.scalar(select(ScheduledAutomation))
+    grant = await session.scalar(select(AutomationGrant))
+
+    assert result.code == "confirmation_required"
+    assert schedule is not None
+    assert schedule.capabilities_snapshot == ["schedule_execution", "web_research"]
+    assert schedule.tool_policy_snapshot["tools"] == ["research_web", "deliver_to_user"]
+    assert grant is not None
+    assert grant.allowed_tools == ["research_web", "deliver_to_user"]
+    assert grant.status == "pending"
 
 
 @pytest.mark.asyncio
