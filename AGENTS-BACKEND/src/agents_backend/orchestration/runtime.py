@@ -31,7 +31,7 @@ from agents_backend.schemas import AgentToolUseResponse
 
 logger = logging.getLogger(__name__)
 
-ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-09-22-v13"
+ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-09-24-v14"
 
 ORCHESTRATION_INSTRUCTIONS = """
 Você é o agente orquestrador de tarefas de uma memória pessoal. Recebe uma tarefa persistida, com
@@ -83,6 +83,9 @@ Regras obrigatórias:
 - Quando uma rotina precisar de informações atuais da internet, inclua research_web nas tools e
   deliver_to_user para entregar o resultado. A pesquisa fica limitada ao objetivo confirmado da
   rotina e deve citar as fontes encontradas.
+- Para resumos, briefings, pesquisas e avisos que ainda são úteis quando chegam com atraso, use
+  misfire_policy=latest. Use skip somente quando o usuário disser explicitamente que prefere perder
+  a ocorrência a receber um resultado atrasado.
 - Não invente schedule_id. Use list_schedules antes de alterar, pausar, retomar, remover ou executar
   uma rotina quando o ID não estiver no contexto.
 - Em uma execução com route=scheduled, cumpra somente schedule_spec, use apenas as tools fornecidas

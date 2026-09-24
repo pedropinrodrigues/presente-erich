@@ -26,6 +26,7 @@ from agents_backend.models import (
     ScheduledRun,
 )
 from agents_backend.scheduling.dispatcher import (
+    _should_skip_misfire,
     claim_scheduled_run,
     dispatch_due_schedule,
     expire_stale_schedules,
@@ -218,6 +219,39 @@ def test_schedule_tool_schemas_are_strict() -> None:
         for nested in schema.get("$defs", {}).values():
             if nested.get("type") == "object":
                 assert nested["additionalProperties"] is False
+
+
+def test_misfire_policy_tolerates_polling_jitter_and_respects_grace() -> None:
+    assert not _should_skip_misfire(
+        late_seconds=2,
+        policy="skip",
+        grace_seconds=3600,
+        poll_interval_seconds=1,
+    )
+    assert not _should_skip_misfire(
+        late_seconds=2,
+        policy="skip",
+        grace_seconds=0,
+        poll_interval_seconds=1,
+    )
+    assert _should_skip_misfire(
+        late_seconds=10,
+        policy="skip",
+        grace_seconds=3600,
+        poll_interval_seconds=1,
+    )
+    assert not _should_skip_misfire(
+        late_seconds=3599,
+        policy="latest",
+        grace_seconds=3600,
+        poll_interval_seconds=1,
+    )
+    assert _should_skip_misfire(
+        late_seconds=3601,
+        policy="latest",
+        grace_seconds=3600,
+        poll_interval_seconds=1,
+    )
 
 
 def test_schedule_memory_policy_cannot_bypass_context_limits() -> None:

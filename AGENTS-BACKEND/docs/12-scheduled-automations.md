@@ -246,6 +246,12 @@ Se a confirmação de uma rotina pontual chegar depois do horário, mas ainda de
 `misfire_grace_seconds`, ela é ativada para execução imediata. Sem confirmação após essa tolerância,
 a rotina passa a `expired`, seu grant é revogado e a ação pendente é encerrada.
 
+Na execução, `latest` processa uma ocorrência atrasada enquanto ela estiver dentro de
+`misfire_grace_seconds`; é a política indicada para resumos, briefings, pesquisas e avisos. `skip`
+descarta uma ocorrência realmente atrasada, mas tolera o atraso operacional normal do polling
+(no mínimo cinco segundos ou dois intervalos do scheduler). Assim, capturar uma rotina um ou dois
+segundos depois do horário não é tratado como misfire.
+
 ## Catálogo amplo do Composio
 
 O catálogo atual é fixo em `policies.py`. Para chegar a “qualquer skill do Composio” com segurança,

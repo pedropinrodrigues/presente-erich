@@ -33,12 +33,28 @@ from agents_backend.scheduling.recurrence import next_occurrence
 from agents_backend.scheduling.schemas import ScheduleSpec
 
 logger = logging.getLogger(__name__)
+MINIMUM_ON_TIME_WINDOW_SECONDS = 5.0
 
 
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _should_skip_misfire(
+    *,
+    late_seconds: float,
+    policy: str,
+    grace_seconds: int,
+    poll_interval_seconds: float,
+) -> bool:
+    on_time_window = max(MINIMUM_ON_TIME_WINDOW_SECONDS, poll_interval_seconds * 2)
+    if late_seconds <= on_time_window:
+        return False
+    if late_seconds > grace_seconds:
+        return True
+    return policy == "skip" and late_seconds > on_time_window
 
 
 async def expire_stale_schedules(session: AsyncSession) -> bool:
@@ -135,9 +151,13 @@ async def dispatch_due_schedule(
         return False
     scheduled_for = _as_utc(schedule.next_run_at)
     spec = ScheduleSpec.model_validate(schedule.compiled_spec)
-    late_seconds = max(0, int((now - scheduled_for).total_seconds()))
-    skipped = late_seconds > schedule.misfire_grace_seconds or (
-        schedule.misfire_policy == "skip" and late_seconds > 0
+    late_by = max(0.0, (now - scheduled_for).total_seconds())
+    late_seconds = int(late_by)
+    skipped = _should_skip_misfire(
+        late_seconds=late_by,
+        policy=schedule.misfire_policy,
+        grace_seconds=schedule.misfire_grace_seconds,
+        poll_interval_seconds=settings.scheduler_poll_interval_seconds,
     )
     run = ScheduledRun(
         workspace_id=schedule.workspace_id,
