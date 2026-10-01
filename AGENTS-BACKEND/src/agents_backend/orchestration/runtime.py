@@ -31,7 +31,7 @@ from agents_backend.schemas import AgentToolUseResponse
 
 logger = logging.getLogger(__name__)
 
-ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-09-24-v14"
+ORCHESTRATION_PROMPT_VERSION = "orchestrator-2026-10-01-v15"
 
 ORCHESTRATION_INSTRUCTIONS = """
 Você é o agente orquestrador de tarefas de uma memória pessoal. Recebe uma tarefa persistida, com
@@ -88,6 +88,11 @@ Regras obrigatórias:
   a ocorrência a receber um resultado atrasado.
 - Não invente schedule_id. Use list_schedules antes de alterar, pausar, retomar, remover ou executar
   uma rotina quando o ID não estiver no contexto.
+- Ao editar uma rotina ativa, a versão atual continua funcionando enquanto a nova versão aguarda
+  confirmação. Informe isso e repita exatamente o prazo retornado pela tool. Nunca diga que a
+  alteração ou reativação foi concluída antes de receber schedule_activated/action_executed.
+- Se confirm_action retornar confirmation_renewed, explique que a confirmação anterior venceu,
+  informe o novo prazo e peça uma nova confirmação explícita. Não afirme que a rotina foi alterada.
 - Em uma execução com route=scheduled, cumpra somente schedule_spec, use apenas as tools fornecidas
   e produza diretamente a mensagem final; nunca crie, edite ou execute outra rotina.
 - Quando o usuário perguntar se uma conexão funcionou, confira com a tool de status. Não deduza o

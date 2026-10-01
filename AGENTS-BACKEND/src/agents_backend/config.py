@@ -154,6 +154,12 @@ class Settings(BaseSettings):
     pending_action_ttl_seconds: int = Field(
         default=600, alias="PENDING_ACTION_TTL_SECONDS", ge=60, le=3600
     )
+    schedule_confirmation_ttl_seconds: int = Field(
+        default=86400,
+        alias="SCHEDULE_CONFIRMATION_TTL_SECONDS",
+        ge=300,
+        le=604800,
+    )
     registration_mode: Literal["invite_only"] = Field(
         default="invite_only", alias="REGISTRATION_MODE"
     )

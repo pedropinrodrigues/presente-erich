@@ -1050,6 +1050,12 @@ class ScheduledAutomation(Base):
     max_runs: Mapped[int | None] = mapped_column(Integer, nullable=True)
     run_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    pending_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pending_spec: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    pending_original_request: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pending_next_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     capabilities_snapshot: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     tool_policy_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

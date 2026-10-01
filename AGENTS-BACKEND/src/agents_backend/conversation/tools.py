@@ -740,6 +740,7 @@ async def create_pending_action(
     tool_name: str,
     arguments: dict[str, Any],
     summary: str,
+    ttl_seconds: int | None = None,
 ) -> PendingAction:
     now = datetime.now(UTC)
     signature = hashlib.sha256(
@@ -772,7 +773,14 @@ async def create_pending_action(
         summary=summary,
         confirmation_token=f"{signature[:16]}:{secrets.token_urlsafe(24)}",
         status="pending",
-        expires_at=now + timedelta(seconds=context.settings.pending_action_ttl_seconds),
+        expires_at=now
+        + timedelta(
+            seconds=(
+                ttl_seconds
+                if ttl_seconds is not None
+                else context.settings.pending_action_ttl_seconds
+            )
+        ),
     )
     context.session.add(action)
     await context.session.flush()
@@ -871,7 +879,34 @@ async def _delete_source(context: ToolContext, arguments: DeleteSourceArguments)
 async def _confirm_action(context: ToolContext, arguments: ConfirmActionArguments) -> ToolEnvelope:
     actions = await _active_pending_actions(context, arguments.action_id, lock=True)
     if not actions:
-        return _failure("no_pending_action", "Não há ação pendente válida para confirmar.")
+        is_explicit = _routing_confirmation_status(context) == "explicit" or (
+            _is_explicit_confirmation(context.inbound_message.content)
+        )
+        if is_explicit:
+            expired_statement = select(PendingAction).where(
+                PendingAction.workspace_id == context.request_context.workspace_id,
+                PendingAction.conversation_id == context.conversation.id,
+                PendingAction.user_id == context.request_context.identity.user_id,
+                PendingAction.tool_name == "activate_schedule",
+                PendingAction.status == "expired",
+            )
+            if arguments.action_id is not None:
+                expired_statement = expired_statement.where(
+                    PendingAction.id == arguments.action_id
+                )
+            expired_action = await context.session.scalar(
+                expired_statement.order_by(PendingAction.created_at.desc()).limit(1)
+            )
+            if expired_action is not None:
+                from agents_backend.scheduling.service import (
+                    renew_expired_schedule_confirmation,
+                )
+
+                return await renew_expired_schedule_confirmation(context, expired_action)
+        return _failure(
+            "no_pending_action",
+            "Não há uma confirmação válida agora. Peça para preparar a ação novamente.",
+        )
     if len(actions) > 1:
         return _failure(
             "ambiguous_pending_action",

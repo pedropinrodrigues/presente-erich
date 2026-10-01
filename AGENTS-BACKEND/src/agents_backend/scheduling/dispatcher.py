@@ -66,24 +66,48 @@ async def expire_stale_schedules(session: AsyncSession) -> bool:
                 .where(
                     ScheduledAutomation.status
                     == ScheduledAutomationStatus.AWAITING_CONFIRMATION.value,
-                    ScheduledAutomation.next_run_at.is_not(None),
-                    ScheduledAutomation.next_run_at < now,
                 )
-                .order_by(ScheduledAutomation.next_run_at)
+                .order_by(ScheduledAutomation.created_at)
                 .with_for_update(skip_locked=True)
                 .limit(100)
             )
         ).all()
     )
-    schedule = next(
+    if not candidates:
+        await session.rollback()
+        return False
+    actions = list(
         (
-            item
-            for item in candidates
-            if item.next_run_at is not None
-            and _as_utc(item.next_run_at) + timedelta(seconds=item.misfire_grace_seconds) < now
-        ),
-        None,
+            await session.scalars(
+                select(PendingAction).where(
+                    PendingAction.conversation_id.in_(
+                        [candidate.conversation_id for candidate in candidates]
+                    ),
+                    PendingAction.tool_name == "activate_schedule",
+                    PendingAction.status.in_(["pending", "executing"]),
+                )
+            )
+        ).all()
     )
+    action_by_target = {
+        (
+            str(action.arguments.get("schedule_id")),
+            int(action.arguments.get("revision", 0)),
+        ): action
+        for action in actions
+    }
+    schedule = None
+    pending_action = None
+    for candidate in candidates:
+        target_revision = candidate.pending_revision or candidate.revision
+        candidate_action = action_by_target.get((str(candidate.id), target_revision))
+        if candidate_action is None or (
+            candidate_action.status == "pending"
+            and _as_utc(candidate_action.expires_at) <= now
+        ):
+            schedule = candidate
+            pending_action = candidate_action
+            break
     if schedule is None:
         await session.rollback()
         return False
@@ -102,7 +126,7 @@ async def expire_stale_schedules(session: AsyncSession) -> bool:
     for grant in grants:
         grant.status = "revoked"
         grant.revoked_at = now
-    actions = list(
+    schedule_actions = list(
         (
             await session.scalars(
                 select(PendingAction).where(
@@ -115,15 +139,22 @@ async def expire_stale_schedules(session: AsyncSession) -> bool:
             )
         ).all()
     )
-    for action in actions:
+    for action in schedule_actions:
         if str(action.arguments.get("schedule_id")) == str(schedule.id):
             action.status = "expired"
+    if pending_action is not None:
+        pending_action.status = "expired"
+    expired_revision = schedule.pending_revision or schedule.revision
+    schedule.pending_revision = None
+    schedule.pending_spec = None
+    schedule.pending_original_request = None
+    schedule.pending_next_run_at = None
     session.add(
         ScheduleEvent(
             workspace_id=schedule.workspace_id,
             scheduled_automation_id=schedule.id,
             event_type="expired",
-            event_metadata={"revision": schedule.revision, "reason": "confirmation_timeout"},
+            event_metadata={"revision": expired_revision, "reason": "confirmation_timeout"},
         )
     )
     await session.commit()

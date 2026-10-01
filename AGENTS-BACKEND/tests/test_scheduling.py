@@ -37,13 +37,17 @@ from agents_backend.scheduling.schemas import (
     CreateScheduleArguments,
     ScheduleSpec,
     ScheduleTrigger,
+    UpdateScheduleArguments,
 )
 from agents_backend.scheduling.service import (
     _capabilities_for_spec,
     _validate_tool_policy,
     activate_pending_schedule,
+    cancel_pending_schedule,
     create_schedule,
+    renew_expired_schedule_confirmation,
     schedule_tool_specs,
+    update_schedule,
 )
 
 
@@ -427,6 +431,176 @@ async def test_schedule_requires_one_confirmation_then_activates(session, contex
 
 
 @pytest.mark.asyncio
+async def test_schedule_update_keeps_current_revision_active_until_confirmation(
+    session, context
+) -> None:
+    settings = schedule_settings()
+    conversation, inbound, run = await records(
+        session,
+        context,
+        "Todo dia às 7h30 me envie meu briefing.",
+    )
+    tool_context = ToolContext(
+        session=session,
+        request_context=context,
+        conversation=conversation,
+        inbound_message=inbound,
+        agent_run=run,
+        call_id="create-then-update-schedule",
+        idempotency_key="create-then-update-schedule-key",
+        settings=settings,
+    )
+    await create_schedule(tool_context, CreateScheduleArguments(spec=daily_spec()))
+    schedule = await session.scalar(select(ScheduledAutomation))
+    assert schedule is not None
+    await activate_pending_schedule(
+        tool_context,
+        schedule_id=schedule.id,
+        revision=1,
+        confirmation_message_id=inbound.id,
+    )
+    original_name = schedule.name
+    original_spec = dict(schedule.compiled_spec)
+    original_next_run = schedule.next_run_at
+
+    updated_data = daily_spec().model_dump(mode="json")
+    updated_data["name"] = "Briefing diário aprimorado"
+    updated_data["objective"] = "Inclua tendências e fontes no briefing diário."
+    updated_spec = ScheduleSpec.model_validate(updated_data)
+    proposed = await update_schedule(
+        tool_context,
+        UpdateScheduleArguments(schedule_id=schedule.id, spec=updated_spec),
+    )
+    await session.flush()
+
+    grants = list(
+        (
+            await session.scalars(
+                select(AutomationGrant).order_by(AutomationGrant.automation_revision)
+            )
+        ).all()
+    )
+    assert proposed.code == "confirmation_required"
+    assert "continuará ativa" in proposed.message
+    assert "Confirme em uma nova mensagem até" in proposed.message
+    assert schedule.status == "active"
+    assert schedule.revision == 1
+    assert schedule.name == original_name
+    assert schedule.compiled_spec == original_spec
+    assert schedule.next_run_at == original_next_run
+    assert schedule.pending_revision == 2
+    assert schedule.pending_spec is not None
+    assert [grant.status for grant in grants] == ["active", "pending"]
+
+    activated = await activate_pending_schedule(
+        tool_context,
+        schedule_id=schedule.id,
+        revision=2,
+        confirmation_message_id=inbound.id,
+    )
+    await session.flush()
+
+    assert activated.code == "schedule_activated"
+    assert schedule.status == "active"
+    assert schedule.revision == 2
+    assert schedule.name == "Briefing diário aprimorado"
+    assert schedule.compiled_spec["objective"] == updated_spec.objective
+    assert schedule.pending_revision is None
+    assert schedule.pending_spec is None
+    assert [grant.status for grant in grants] == ["revoked", "active"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_schedule_update_keeps_active_revision_unchanged(session, context) -> None:
+    settings = schedule_settings()
+    conversation, inbound, run = await records(session, context, "Crie meu briefing diário.")
+    tool_context = ToolContext(
+        session=session,
+        request_context=context,
+        conversation=conversation,
+        inbound_message=inbound,
+        agent_run=run,
+        call_id="cancel-schedule-update",
+        idempotency_key="cancel-schedule-update-key",
+        settings=settings,
+    )
+    await create_schedule(tool_context, CreateScheduleArguments(spec=daily_spec()))
+    schedule = await session.scalar(select(ScheduledAutomation))
+    assert schedule is not None
+    await activate_pending_schedule(
+        tool_context,
+        schedule_id=schedule.id,
+        revision=1,
+        confirmation_message_id=inbound.id,
+    )
+    updated_data = daily_spec().model_dump(mode="json")
+    updated_data["name"] = "Nome que não deve ser aplicado"
+    await update_schedule(
+        tool_context,
+        UpdateScheduleArguments(
+            schedule_id=schedule.id,
+            spec=ScheduleSpec.model_validate(updated_data),
+        ),
+    )
+
+    await cancel_pending_schedule(tool_context, schedule_id=schedule.id, revision=2)
+    await session.flush()
+    grants = list(
+        (
+            await session.scalars(
+                select(AutomationGrant).order_by(AutomationGrant.automation_revision)
+            )
+        ).all()
+    )
+
+    assert schedule.status == "active"
+    assert schedule.revision == 1
+    assert schedule.name == "Briefing diário"
+    assert schedule.pending_revision is None
+    assert [grant.status for grant in grants] == ["active", "revoked"]
+
+
+@pytest.mark.asyncio
+async def test_expired_schedule_confirmation_can_be_renewed(session, context) -> None:
+    settings = schedule_settings()
+    conversation, inbound, run = await records(session, context, "Crie meu briefing diário.")
+    tool_context = ToolContext(
+        session=session,
+        request_context=context,
+        conversation=conversation,
+        inbound_message=inbound,
+        agent_run=run,
+        call_id="renew-schedule-confirmation",
+        idempotency_key="renew-schedule-confirmation-key",
+        settings=settings,
+    )
+    await create_schedule(tool_context, CreateScheduleArguments(spec=daily_spec()))
+    expired = await session.scalar(select(PendingAction))
+    assert expired is not None
+    expired.status = "expired"
+    expired.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await session.flush()
+
+    renewed = await renew_expired_schedule_confirmation(tool_context, expired)
+    await session.flush()
+    pending = list(
+        (
+            await session.scalars(
+                select(PendingAction).order_by(PendingAction.created_at)
+            )
+        ).all()
+    )
+
+    assert renewed.code == "confirmation_renewed"
+    assert "responda novamente até" in renewed.message
+    assert [action.status for action in pending] == ["expired", "pending"]
+    renewed_expiry = pending[-1].expires_at
+    if renewed_expiry.tzinfo is None:
+        renewed_expiry = renewed_expiry.replace(tzinfo=UTC)
+    assert renewed_expiry > datetime.now(UTC) + timedelta(hours=23)
+
+
+@pytest.mark.asyncio
 async def test_late_one_time_confirmation_runs_within_grace(session, context) -> None:
     settings = schedule_settings()
     conversation, inbound, run = await records(session, context, "Consulte e me avise depois.")
@@ -493,6 +667,15 @@ async def test_stale_unconfirmed_schedule_expires(session, context) -> None:
     schedule = await session.scalar(select(ScheduledAutomation))
     assert schedule is not None
     schedule.next_run_at = datetime.now(UTC) - timedelta(minutes=2)
+    pending = await session.scalar(select(PendingAction))
+    assert pending is not None
+    await session.commit()
+
+    assert await expire_stale_schedules(session) is False
+    await session.refresh(schedule)
+    assert schedule.status == "awaiting_confirmation"
+
+    pending.expires_at = datetime.now(UTC) - timedelta(seconds=1)
     await session.commit()
 
     assert await expire_stale_schedules(session) is True

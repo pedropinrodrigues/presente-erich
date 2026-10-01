@@ -34,7 +34,9 @@ async def reconcile_closed_pending_task(session: AsyncSession) -> bool:
             .where(
                 OrchestrationTask.status == OrchestrationTaskStatus.WAITING_CONFIRMATION.value,
                 or_(
-                    PendingAction.status.in_(["expired", "failed", "cancelled", "executed"]),
+                    PendingAction.status.in_(
+                        ["expired", "failed", "cancelled", "executed", "superseded"]
+                    ),
                     (PendingAction.status == "pending") & (PendingAction.expires_at <= now),
                 ),
             )
@@ -57,6 +59,10 @@ async def reconcile_closed_pending_task(session: AsyncSession) -> bool:
         task.status = OrchestrationTaskStatus.CANCELLED.value
         task.result_code = "pending_action_cancelled"
         event_type = "reconciled_cancelled"
+    elif action.status == "superseded":
+        task.status = OrchestrationTaskStatus.CANCELLED.value
+        task.result_code = "pending_action_superseded"
+        event_type = "reconciled_superseded"
     else:
         task.status = OrchestrationTaskStatus.FAILED.value
         task.result_code = "pending_action_closed"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
@@ -18,6 +19,7 @@ from agents_backend.integrations.composio.policies import POLICIES
 from agents_backend.models import (
     AutomationGrant,
     ExternalIntegration,
+    PendingAction,
     ScheduledAutomation,
     ScheduledAutomationStatus,
     ScheduledRun,
@@ -56,7 +58,7 @@ def _spec_data(spec: ScheduleSpec) -> dict[str, Any]:
 
 
 def _schedule_data(schedule: ScheduledAutomation) -> dict[str, Any]:
-    return {
+    data: dict[str, Any] = {
         "schedule_id": str(schedule.id),
         "name": schedule.name,
         "objective": schedule.compiled_spec.get("objective"),
@@ -70,6 +72,16 @@ def _schedule_data(schedule: ScheduledAutomation) -> dict[str, Any]:
         "revision": schedule.revision,
         "tools": schedule.tool_policy_snapshot.get("tools", []),
     }
+    if schedule.pending_revision is not None:
+        data["pending_update"] = {
+            "revision": schedule.pending_revision,
+            "next_run_at": (
+                schedule.pending_next_run_at.isoformat()
+                if schedule.pending_next_run_at
+                else None
+            ),
+        }
+    return data
 
 
 def _validate_tool_policy(spec: ScheduleSpec) -> str | None:
@@ -137,13 +149,41 @@ async def _validate_accounts(context: ToolContext, spec: ScheduleSpec) -> str | 
     return None
 
 
-def _confirmation_summary(schedule: ScheduledAutomation) -> str:
-    tools = ", ".join(schedule.tool_policy_snapshot.get("tools", []))
-    next_run = schedule.next_run_at.isoformat() if schedule.next_run_at else "sem ocorrência"
+def _confirmation_summary(
+    *,
+    name: str,
+    tools: list[str],
+    next_run: datetime | None,
+    updating: bool = False,
+) -> str:
+    tool_names = ", ".join(tools)
+    next_run_text = next_run.isoformat() if next_run else "sem ocorrência"
+    operation = "Atualizar" if updating else "Ativar"
     return (
-        f"Ativar rotina '{schedule.name}'. Próxima execução: {next_run}. "
-        f"Tools autorizadas: {tools}. A autorização valerá para execuções futuras desta revisão."
+        f"{operation} rotina '{name}'. Próxima execução: {next_run_text}. "
+        f"Tools autorizadas: {tool_names}. "
+        "A autorização valerá para execuções futuras desta revisão."
     )
+
+
+def _confirmation_deadline(action: PendingAction, timezone: str) -> str:
+    local = action.expires_at.astimezone(ZoneInfo(timezone))
+    return f"{local:%d/%m/%Y às %H:%M} ({timezone})"
+
+
+def _pending_confirmation_data(action: PendingAction) -> dict[str, Any]:
+    return {
+        "id": str(action.id),
+        "summary": action.summary,
+        "expires_at": action.expires_at.isoformat(),
+    }
+
+
+def _clear_pending_update(schedule: ScheduledAutomation) -> None:
+    schedule.pending_revision = None
+    schedule.pending_spec = None
+    schedule.pending_original_request = None
+    schedule.pending_next_run_at = None
 
 
 def _can_activate_from_initial_request(spec: ScheduleSpec) -> bool:
@@ -264,12 +304,24 @@ async def create_schedule(context: ToolContext, arguments: CreateScheduleArgumen
         context,
         tool_name="activate_schedule",
         arguments={"schedule_id": str(schedule.id), "revision": schedule.revision},
-        summary=_confirmation_summary(schedule),
+        summary=_confirmation_summary(
+            name=schedule.name,
+            tools=schedule.tool_policy_snapshot.get("tools", []),
+            next_run=schedule.next_run_at,
+        ),
+        ttl_seconds=context.settings.schedule_confirmation_ttl_seconds,
     )
     return _success(
         "confirmation_required",
-        "A rotina foi preparada, mas ainda não está ativa. Confirme em uma nova mensagem.",
-        {"schedule": _schedule_data(schedule), "confirmation": pending.summary},
+        (
+            "A rotina foi preparada, mas ainda não está ativa. "
+            "Confirme em uma nova mensagem até "
+            f"{_confirmation_deadline(pending, schedule.timezone)}."
+        ),
+        {
+            "schedule": _schedule_data(schedule),
+            "confirmation": _pending_confirmation_data(pending),
+        },
     )
 
 
@@ -281,7 +333,10 @@ async def activate_pending_schedule(
     confirmation_message_id: uuid.UUID,
 ) -> ToolEnvelope:
     schedule = await _scoped_schedule(context, schedule_id, lock=True)
-    if schedule is None or schedule.revision != revision:
+    if schedule is None:
+        return _failure("schedule_not_found", "A rotina pendente não foi encontrada.")
+    is_update = schedule.pending_revision == revision and schedule.pending_spec is not None
+    if not is_update and schedule.revision != revision:
         return _failure("schedule_not_found", "A rotina pendente não foi encontrada.")
     grant = await context.session.scalar(
         select(AutomationGrant).where(
@@ -292,31 +347,79 @@ async def activate_pending_schedule(
     )
     if grant is None:
         return _failure("schedule_grant_not_found", "A autorização da rotina não foi encontrada.")
-    spec = ScheduleSpec.model_validate(schedule.compiled_spec)
+    spec = ScheduleSpec.model_validate(
+        schedule.pending_spec if is_update else schedule.compiled_spec
+    )
     now = datetime.now(UTC)
     next_run = next_occurrence(spec, after=now, inclusive=True)
     if next_run is None:
         intended_at = spec.trigger.starts_at.astimezone(UTC)
         late_seconds = (now - intended_at).total_seconds()
-        if spec.trigger.kind == "once" and 0 <= late_seconds <= schedule.misfire_grace_seconds:
+        if spec.trigger.kind == "once" and 0 <= late_seconds <= spec.misfire_grace_seconds:
             next_run = now
         else:
             grant.status = "revoked"
             grant.revoked_at = now
-            schedule.status = ScheduledAutomationStatus.EXPIRED.value
-            schedule.next_run_at = None
+            if is_update:
+                _clear_pending_update(schedule)
+            else:
+                schedule.status = ScheduledAutomationStatus.EXPIRED.value
+                schedule.next_run_at = None
             context.session.add(
                 ScheduleEvent(
                     workspace_id=schedule.workspace_id,
                     scheduled_automation_id=schedule.id,
-                    event_type="expired",
+                    event_type="update_expired" if is_update else "expired",
                     event_metadata={"revision": revision, "reason": "confirmation_too_late"},
                 )
             )
             return _failure(
                 "schedule_has_no_future_occurrence",
-                "O horário da rotina passou além da tolerância e ela expirou.",
+                (
+                    "O horário da nova versão passou além da tolerância. "
+                    "A versão anterior continua como estava."
+                    if is_update
+                    else "O horário da rotina passou além da tolerância e ela expirou."
+                ),
             )
+    if is_update:
+        active_grants = list(
+            (
+                await context.session.scalars(
+                    select(AutomationGrant).where(
+                        AutomationGrant.scheduled_automation_id == schedule.id,
+                        AutomationGrant.status == "active",
+                    )
+                )
+            ).all()
+        )
+        for active_grant in active_grants:
+            active_grant.status = "revoked"
+            active_grant.revoked_at = now
+        schedule.revision = revision
+        schedule.name = spec.name
+        schedule.original_request = schedule.pending_original_request or schedule.original_request
+        schedule.compiled_spec = _spec_data(spec)
+        schedule.timezone = spec.trigger.timezone
+        schedule.recurrence_rule = spec.trigger.recurrence_rule
+        schedule.starts_at = spec.trigger.starts_at.astimezone(UTC)
+        schedule.ends_at = (
+            spec.trigger.ends_at.astimezone(UTC) if spec.trigger.ends_at else None
+        )
+        schedule.misfire_policy = spec.misfire_policy
+        schedule.misfire_grace_seconds = spec.misfire_grace_seconds
+        schedule.max_runs = spec.max_runs
+        schedule.capabilities_snapshot = _capabilities_for_spec(spec)
+        schedule.tool_policy_snapshot = spec.tool_policy.model_dump(mode="json")
+        _clear_pending_update(schedule)
+        context.session.add(
+            ScheduleEvent(
+                workspace_id=schedule.workspace_id,
+                scheduled_automation_id=schedule.id,
+                event_type="updated",
+                event_metadata={"revision": revision},
+            )
+        )
     grant.status = "active"
     grant.confirmed_by_message_id = confirmation_message_id
     grant.confirmed_at = now
@@ -328,13 +431,13 @@ async def activate_pending_schedule(
         ScheduleEvent(
             workspace_id=schedule.workspace_id,
             scheduled_automation_id=schedule.id,
-            event_type="activated",
+            event_type="updated_activated" if is_update else "activated",
             event_metadata={"revision": revision, "grant_id": str(grant.id)},
         )
     )
     return _success(
         "schedule_activated",
-        "A rotina foi ativada.",
+        "A nova versão da rotina foi ativada." if is_update else "A rotina foi ativada.",
         _schedule_data(schedule),
     )
 
@@ -346,12 +449,18 @@ async def cancel_pending_schedule(
     revision: int,
 ) -> None:
     schedule = await _scoped_schedule(context, schedule_id, lock=True)
-    if schedule is None or schedule.revision != revision:
+    if schedule is None:
         return
     now = datetime.now(UTC)
-    schedule.status = ScheduledAutomationStatus.DELETED.value
-    schedule.next_run_at = None
-    schedule.deleted_at = now
+    is_update = schedule.pending_revision == revision and schedule.pending_spec is not None
+    if not is_update and schedule.revision != revision:
+        return
+    if is_update:
+        _clear_pending_update(schedule)
+    else:
+        schedule.status = ScheduledAutomationStatus.DELETED.value
+        schedule.next_run_at = None
+        schedule.deleted_at = now
     grant = await context.session.scalar(
         select(AutomationGrant).where(
             AutomationGrant.scheduled_automation_id == schedule.id,
@@ -366,7 +475,7 @@ async def cancel_pending_schedule(
         ScheduleEvent(
             workspace_id=schedule.workspace_id,
             scheduled_automation_id=schedule.id,
-            event_type="activation_cancelled",
+            event_type="update_cancelled" if is_update else "activation_cancelled",
             event_metadata={"revision": revision},
         )
     )
@@ -593,40 +702,46 @@ async def update_schedule(context: ToolContext, arguments: UpdateScheduleArgumen
     if next_run is None:
         return _failure("schedule_has_no_future_occurrence", "A rotina não tem ocorrência futura.")
     now = datetime.now(UTC)
-    old_grants = list(
+    old_pending_grants = list(
         (
             await context.session.scalars(
                 select(AutomationGrant).where(
                     AutomationGrant.scheduled_automation_id == schedule.id,
-                    AutomationGrant.status.in_(["active", "pending"]),
+                    AutomationGrant.status == "pending",
                 )
             )
         ).all()
     )
-    for old in old_grants:
+    for old in old_pending_grants:
         old.status = "revoked"
         old.revoked_at = now
+    pending_actions = list(
+        (
+            await context.session.scalars(
+                select(PendingAction).where(
+                    PendingAction.workspace_id == schedule.workspace_id,
+                    PendingAction.conversation_id == schedule.conversation_id,
+                    PendingAction.user_id == schedule.user_id,
+                    PendingAction.tool_name == "activate_schedule",
+                    PendingAction.status == "pending",
+                )
+            )
+        ).all()
+    )
+    for action in pending_actions:
+        if str(action.arguments.get("schedule_id")) == str(schedule.id):
+            action.status = "superseded"
     spec = arguments.spec
-    schedule.revision += 1
-    schedule.name = spec.name
-    schedule.original_request = context.inbound_message.content
-    schedule.compiled_spec = _spec_data(spec)
-    schedule.timezone = spec.trigger.timezone
-    schedule.recurrence_rule = spec.trigger.recurrence_rule
-    schedule.starts_at = spec.trigger.starts_at.astimezone(UTC)
-    schedule.ends_at = spec.trigger.ends_at.astimezone(UTC) if spec.trigger.ends_at else None
-    schedule.next_run_at = next_run
-    schedule.status = ScheduledAutomationStatus.AWAITING_CONFIRMATION.value
-    schedule.misfire_policy = spec.misfire_policy
-    schedule.misfire_grace_seconds = spec.misfire_grace_seconds
-    schedule.max_runs = spec.max_runs
-    schedule.capabilities_snapshot = _capabilities_for_spec(spec)
-    schedule.tool_policy_snapshot = spec.tool_policy.model_dump(mode="json")
+    pending_revision = max(schedule.revision, schedule.pending_revision or 0) + 1
+    schedule.pending_revision = pending_revision
+    schedule.pending_spec = _spec_data(spec)
+    schedule.pending_original_request = context.inbound_message.content
+    schedule.pending_next_run_at = next_run
     grant = AutomationGrant(
         workspace_id=schedule.workspace_id,
         user_id=schedule.user_id,
         scheduled_automation_id=schedule.id,
-        automation_revision=schedule.revision,
+        automation_revision=pending_revision,
         allowed_tools=spec.tool_policy.tools,
         allowed_account_ids=[str(value) for value in spec.tool_policy.account_ids],
         constraints=spec.tool_policy.constraints.model_dump(mode="json"),
@@ -638,20 +753,110 @@ async def update_schedule(context: ToolContext, arguments: UpdateScheduleArgumen
         ScheduleEvent(
             workspace_id=schedule.workspace_id,
             scheduled_automation_id=schedule.id,
-            event_type="updated",
-            event_metadata={"revision": schedule.revision},
+            event_type="update_proposed",
+            event_metadata={
+                "current_revision": schedule.revision,
+                "pending_revision": pending_revision,
+                "current_version_kept_active": schedule.status
+                == ScheduledAutomationStatus.ACTIVE.value,
+            },
         )
     )
     pending = await create_pending_action(
         context,
         tool_name="activate_schedule",
-        arguments={"schedule_id": str(schedule.id), "revision": schedule.revision},
-        summary=_confirmation_summary(schedule),
+        arguments={"schedule_id": str(schedule.id), "revision": pending_revision},
+        summary=_confirmation_summary(
+            name=spec.name,
+            tools=spec.tool_policy.tools,
+            next_run=next_run,
+            updating=True,
+        ),
+        ttl_seconds=context.settings.schedule_confirmation_ttl_seconds,
+    )
+    current_version_message = (
+        "A versão atual continuará ativa até lá. "
+        if schedule.status == ScheduledAutomationStatus.ACTIVE.value
+        else "A rotina continuará inativa até lá. "
     )
     return _success(
         "confirmation_required",
-        "A nova versão foi preparada. Confirme em uma nova mensagem para ativá-la.",
-        {"schedule": _schedule_data(schedule), "confirmation": pending.summary},
+        (
+            "A nova versão foi preparada. "
+            f"{current_version_message}"
+            "Confirme em uma nova mensagem até "
+            f"{_confirmation_deadline(pending, spec.trigger.timezone)}."
+        ),
+        {
+            "schedule": _schedule_data(schedule),
+            "confirmation": _pending_confirmation_data(pending),
+        },
+    )
+
+
+async def renew_expired_schedule_confirmation(
+    context: ToolContext,
+    expired_action: PendingAction,
+) -> ToolEnvelope:
+    schedule_id = uuid.UUID(str(expired_action.arguments["schedule_id"]))
+    revision = int(expired_action.arguments["revision"])
+    schedule = await _scoped_schedule(context, schedule_id, lock=True)
+    if schedule is None:
+        return _failure(
+            "schedule_confirmation_unavailable",
+            "A confirmação expirou e a rotina não está mais disponível.",
+        )
+    is_update = schedule.pending_revision == revision and schedule.pending_spec is not None
+    is_initial_activation = (
+        schedule.revision == revision
+        and schedule.status == ScheduledAutomationStatus.AWAITING_CONFIRMATION.value
+    )
+    grant = await context.session.scalar(
+        select(AutomationGrant).where(
+            AutomationGrant.scheduled_automation_id == schedule.id,
+            AutomationGrant.automation_revision == revision,
+            AutomationGrant.status == "pending",
+        )
+    )
+    if grant is None or not (is_update or is_initial_activation):
+        return _failure(
+            "schedule_confirmation_unavailable",
+            (
+                "A confirmação expirou e essa versão não está mais disponível. "
+                "Peça para reativar ou atualizar a rotina novamente."
+            ),
+        )
+    pending = await create_pending_action(
+        context,
+        tool_name="activate_schedule",
+        arguments={"schedule_id": str(schedule.id), "revision": revision},
+        summary=expired_action.summary,
+        ttl_seconds=context.settings.schedule_confirmation_ttl_seconds,
+    )
+    context.session.add(
+        ScheduleEvent(
+            workspace_id=schedule.workspace_id,
+            scheduled_automation_id=schedule.id,
+            event_type="confirmation_renewed",
+            event_metadata={"revision": revision, "action_id": str(pending.id)},
+        )
+    )
+    timezone = (
+        ScheduleSpec.model_validate(schedule.pending_spec).trigger.timezone
+        if is_update
+        else schedule.timezone
+    )
+    return _success(
+        "confirmation_renewed",
+        (
+            "A confirmação anterior venceu. Criei uma nova confirmação; "
+            f"responda novamente até {_confirmation_deadline(pending, timezone)}. "
+            "Nenhuma versão ativa foi interrompida."
+        ),
+        {
+            "schedule": _schedule_data(schedule),
+            "confirmation": _pending_confirmation_data(pending),
+        },
     )
 
 
@@ -682,7 +887,8 @@ def schedule_tool_specs() -> list[ToolSpec]:
         ),
         ToolSpec(
             "update_schedule",
-            "Prepara uma nova versão de uma rotina e exige confirmação para reativá-la.",
+            "Prepara uma nova versão sem interromper a versão ativa e exige confirmação "
+            "para aplicá-la.",
             UpdateScheduleArguments,
             "R2",
             update_schedule,
