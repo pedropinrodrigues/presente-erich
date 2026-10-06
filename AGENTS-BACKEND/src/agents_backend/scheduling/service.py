@@ -186,14 +186,8 @@ def _clear_pending_update(schedule: ScheduledAutomation) -> None:
     schedule.pending_next_run_at = None
 
 
-def _can_activate_from_initial_request(spec: ScheduleSpec) -> bool:
-    return (
-        spec.trigger.kind == "once"
-        and spec.tool_policy.tools == ["deliver_to_user"]
-        and spec.tool_policy.max_risk == "R0"
-        and not spec.tool_policy.account_ids
-        and spec.delivery.kind == "originating_conversation"
-    )
+def _requires_separate_confirmation(spec: ScheduleSpec) -> bool:
+    return any(SCHEDULE_TOOL_RISKS[tool_name] == "R2" for tool_name in spec.tool_policy.tools)
 
 
 async def _scoped_schedule(
@@ -221,7 +215,7 @@ async def create_schedule(context: ToolContext, arguments: CreateScheduleArgumen
     if account_error:
         return _failure("schedule_account_rejected", account_error)
     now = datetime.now(UTC)
-    activate_immediately = _can_activate_from_initial_request(spec)
+    activate_immediately = not _requires_separate_confirmation(spec)
     next_run = next_occurrence(spec, after=now, inclusive=True)
     if next_run is None and activate_immediately:
         intended_at = spec.trigger.starts_at.astimezone(UTC)
@@ -297,7 +291,7 @@ async def create_schedule(context: ToolContext, arguments: CreateScheduleArgumen
         )
         return _success(
             "schedule_activated",
-            "O aviso pontual foi programado e já está ativo.",
+            "A rotina foi programada e já está ativa.",
             _schedule_data(schedule),
         )
     pending = await create_pending_action(
@@ -733,6 +727,82 @@ async def update_schedule(context: ToolContext, arguments: UpdateScheduleArgumen
             action.status = "superseded"
     spec = arguments.spec
     pending_revision = max(schedule.revision, schedule.pending_revision or 0) + 1
+    requires_confirmation = _requires_separate_confirmation(spec)
+    if not requires_confirmation:
+        active_grants = list(
+            (
+                await context.session.scalars(
+                    select(AutomationGrant).where(
+                        AutomationGrant.scheduled_automation_id == schedule.id,
+                        AutomationGrant.status == "active",
+                    )
+                )
+            ).all()
+        )
+        for active_grant in active_grants:
+            active_grant.status = "revoked"
+            active_grant.revoked_at = now
+        schedule.revision = pending_revision
+        schedule.name = spec.name
+        schedule.original_request = context.inbound_message.content
+        schedule.compiled_spec = _spec_data(spec)
+        schedule.timezone = spec.trigger.timezone
+        schedule.recurrence_rule = spec.trigger.recurrence_rule
+        schedule.starts_at = spec.trigger.starts_at.astimezone(UTC)
+        schedule.ends_at = (
+            spec.trigger.ends_at.astimezone(UTC) if spec.trigger.ends_at else None
+        )
+        schedule.next_run_at = next_run
+        schedule.status = ScheduledAutomationStatus.ACTIVE.value
+        schedule.misfire_policy = spec.misfire_policy
+        schedule.misfire_grace_seconds = spec.misfire_grace_seconds
+        schedule.max_runs = spec.max_runs
+        schedule.capabilities_snapshot = _capabilities_for_spec(spec)
+        schedule.tool_policy_snapshot = spec.tool_policy.model_dump(mode="json")
+        schedule.activated_at = now
+        schedule.paused_at = None
+        schedule.deleted_at = None
+        _clear_pending_update(schedule)
+        grant = AutomationGrant(
+            workspace_id=schedule.workspace_id,
+            user_id=schedule.user_id,
+            scheduled_automation_id=schedule.id,
+            automation_revision=pending_revision,
+            allowed_tools=spec.tool_policy.tools,
+            allowed_account_ids=[str(value) for value in spec.tool_policy.account_ids],
+            constraints=spec.tool_policy.constraints.model_dump(mode="json"),
+            max_risk=spec.tool_policy.max_risk,
+            status="active",
+            confirmed_by_message_id=context.inbound_message.id,
+            confirmed_at=now,
+        )
+        context.session.add(grant)
+        await context.session.flush()
+        context.session.add_all(
+            [
+                ScheduleEvent(
+                    workspace_id=schedule.workspace_id,
+                    scheduled_automation_id=schedule.id,
+                    event_type="updated",
+                    event_metadata={"revision": pending_revision},
+                ),
+                ScheduleEvent(
+                    workspace_id=schedule.workspace_id,
+                    scheduled_automation_id=schedule.id,
+                    event_type="updated_activated",
+                    event_metadata={
+                        "revision": pending_revision,
+                        "grant_id": str(grant.id),
+                        "confirmation_mode": "explicit_update_request",
+                    },
+                ),
+            ]
+        )
+        return _success(
+            "schedule_activated",
+            "A rotina foi atualizada e já está ativa.",
+            _schedule_data(schedule),
+        )
     schedule.pending_revision = pending_revision
     schedule.pending_spec = _spec_data(spec)
     schedule.pending_original_request = context.inbound_message.content
@@ -864,9 +934,9 @@ def schedule_tool_specs() -> list[ToolSpec]:
     return [
         ToolSpec(
             "create_schedule",
-            "Cria uma rotina pontual ou recorrente. Um aviso único para o próprio chat usando "
-            "somente deliver_to_user é ativado imediatamente; outras rotinas exigem confirmação "
-            "única. Use datas explícitas com offset e RRULE para recorrência.",
+            "Cria e ativa uma rotina pontual ou recorrente a partir do pedido explícito. Somente "
+            "rotinas com efeitos externos R2 exigem confirmação adicional. Use datas explícitas "
+            "com offset e RRULE para recorrência.",
             CreateScheduleArguments,
             "R2",
             create_schedule,
@@ -887,8 +957,8 @@ def schedule_tool_specs() -> list[ToolSpec]:
         ),
         ToolSpec(
             "update_schedule",
-            "Prepara uma nova versão sem interromper a versão ativa e exige confirmação "
-            "para aplicá-la.",
+            "Atualiza e ativa a nova versão pelo pedido explícito. Se a nova versão contiver "
+            "efeitos externos R2, mantém a atual ativa e exige confirmação para aplicá-la.",
             UpdateScheduleArguments,
             "R2",
             update_schedule,

@@ -20,6 +20,7 @@ from agents_backend.models import (
     AutomationGrant,
     ChannelMessage,
     Conversation,
+    ExternalIntegration,
     OrchestrationTask,
     PendingAction,
     ScheduledAutomation,
@@ -158,6 +159,61 @@ def web_research_spec(start: datetime | None = None) -> ScheduleSpec:
     return ScheduleSpec.model_validate(data)
 
 
+def r2_schedule_spec(account_id: uuid.UUID, start: datetime | None = None) -> ScheduleSpec:
+    data = daily_spec(start).model_dump(mode="json")
+    data["name"] = "Agenda recorrente com escrita externa"
+    data["objective"] = "Crie no calendário o evento definido pelo pedido do usuário."
+    data["tool_policy"] = {
+        "tools": ["calendar_create_event", "deliver_to_user"],
+        "account_scope": "specific_accounts",
+        "account_ids": [str(account_id)],
+        "max_risk": "R2",
+        "constraints": {
+            "recipient_emails": [],
+            "to_numbers": [],
+            "maximum_external_writes_per_run": 1,
+            "allow_attachments": False,
+        },
+    }
+    return ScheduleSpec.model_validate(data)
+
+
+def r2_once_schedule_spec(account_id: uuid.UUID, start: datetime) -> ScheduleSpec:
+    data = reminder_spec(start).model_dump(mode="json")
+    data["name"] = "Criação pontual no calendário"
+    data["objective"] = "Crie no calendário o evento definido pelo pedido do usuário."
+    data["tool_policy"] = {
+        "tools": ["calendar_create_event", "deliver_to_user"],
+        "account_scope": "specific_accounts",
+        "account_ids": [str(account_id)],
+        "max_risk": "R2",
+        "constraints": {
+            "recipient_emails": [],
+            "to_numbers": [],
+            "maximum_external_writes_per_run": 1,
+            "allow_attachments": False,
+        },
+    }
+    return ScheduleSpec.model_validate(data)
+
+
+async def connected_calendar(session, context: RequestContext) -> ExternalIntegration:
+    integration = ExternalIntegration(
+        workspace_id=context.workspace_id,
+        user_id=context.identity.user_id,
+        provider="composio",
+        toolkit_slug="googlecalendar",
+        auth_config_id="calendar-auth",
+        connected_account_id=f"calendar-{uuid.uuid4()}",
+        status="active",
+        is_default=True,
+        integration_metadata={},
+    )
+    session.add(integration)
+    await session.flush()
+    return integration
+
+
 async def records(session, context: RequestContext, content: str):
     conversation = Conversation(
         workspace_id=context.workspace_id,
@@ -288,7 +344,7 @@ def test_web_research_is_allowed_and_scoped_for_schedules() -> None:
 
 
 @pytest.mark.asyncio
-async def test_web_research_schedule_requires_confirmation_and_persists_grant(
+async def test_web_research_schedule_activates_without_second_confirmation(
     session, context
 ) -> None:
     settings = schedule_settings()
@@ -315,13 +371,16 @@ async def test_web_research_schedule_requires_confirmation_and_persists_grant(
     schedule = await session.scalar(select(ScheduledAutomation))
     grant = await session.scalar(select(AutomationGrant))
 
-    assert result.code == "confirmation_required"
+    assert result.code == "schedule_activated"
     assert schedule is not None
+    assert schedule.status == "active"
     assert schedule.capabilities_snapshot == ["schedule_execution", "web_research"]
     assert schedule.tool_policy_snapshot["tools"] == ["research_web", "deliver_to_user"]
     assert grant is not None
     assert grant.allowed_tools == ["research_web", "deliver_to_user"]
-    assert grant.status == "pending"
+    assert grant.status == "active"
+    assert grant.confirmed_by_message_id == inbound.id
+    assert await session.scalar(select(func.count(PendingAction.id))) == 0
 
 
 @pytest.mark.asyncio
@@ -362,7 +421,7 @@ async def test_one_time_chat_reminder_activates_without_second_confirmation(
 
 
 @pytest.mark.asyncio
-async def test_schedule_requires_one_confirmation_then_activates(session, context) -> None:
+async def test_r2_schedule_requires_one_confirmation_then_activates(session, context) -> None:
     settings = schedule_settings()
     conversation, inbound, run = await records(
         session,
@@ -380,7 +439,11 @@ async def test_schedule_requires_one_confirmation_then_activates(session, contex
         settings=settings,
     )
 
-    proposed = await create_schedule(tool_context, CreateScheduleArguments(spec=daily_spec()))
+    integration = await connected_calendar(session, context)
+    proposed = await create_schedule(
+        tool_context,
+        CreateScheduleArguments(spec=r2_schedule_spec(integration.id)),
+    )
     assert proposed.code == "confirmation_required"
     schedule = await session.scalar(select(ScheduledAutomation))
     assert schedule is not None
@@ -431,7 +494,7 @@ async def test_schedule_requires_one_confirmation_then_activates(session, contex
 
 
 @pytest.mark.asyncio
-async def test_schedule_update_keeps_current_revision_active_until_confirmation(
+async def test_r2_schedule_update_keeps_current_revision_active_until_confirmation(
     session, context
 ) -> None:
     settings = schedule_settings()
@@ -453,19 +516,14 @@ async def test_schedule_update_keeps_current_revision_active_until_confirmation(
     await create_schedule(tool_context, CreateScheduleArguments(spec=daily_spec()))
     schedule = await session.scalar(select(ScheduledAutomation))
     assert schedule is not None
-    await activate_pending_schedule(
-        tool_context,
-        schedule_id=schedule.id,
-        revision=1,
-        confirmation_message_id=inbound.id,
-    )
     original_name = schedule.name
     original_spec = dict(schedule.compiled_spec)
     original_next_run = schedule.next_run_at
 
-    updated_data = daily_spec().model_dump(mode="json")
+    integration = await connected_calendar(session, context)
+    updated_data = r2_schedule_spec(integration.id).model_dump(mode="json")
     updated_data["name"] = "Briefing diário aprimorado"
-    updated_data["objective"] = "Inclua tendências e fontes no briefing diário."
+    updated_data["objective"] = "Crie o evento recorrente solicitado no calendário."
     updated_spec = ScheduleSpec.model_validate(updated_data)
     proposed = await update_schedule(
         tool_context,
@@ -511,6 +569,51 @@ async def test_schedule_update_keeps_current_revision_active_until_confirmation(
 
 
 @pytest.mark.asyncio
+async def test_r0_schedule_update_applies_without_second_confirmation(session, context) -> None:
+    settings = schedule_settings()
+    conversation, inbound, run = await records(session, context, "Crie meu briefing diário.")
+    tool_context = ToolContext(
+        session=session,
+        request_context=context,
+        conversation=conversation,
+        inbound_message=inbound,
+        agent_run=run,
+        call_id="immediate-schedule-update",
+        idempotency_key="immediate-schedule-update-key",
+        settings=settings,
+    )
+    await create_schedule(tool_context, CreateScheduleArguments(spec=daily_spec()))
+    schedule = await session.scalar(select(ScheduledAutomation))
+    assert schedule is not None
+    updated_data = daily_spec().model_dump(mode="json")
+    updated_data["name"] = "Briefing sem confirmação redundante"
+
+    result = await update_schedule(
+        tool_context,
+        UpdateScheduleArguments(
+            schedule_id=schedule.id,
+            spec=ScheduleSpec.model_validate(updated_data),
+        ),
+    )
+    await session.flush()
+    grants = list(
+        (
+            await session.scalars(
+                select(AutomationGrant).order_by(AutomationGrant.automation_revision)
+            )
+        ).all()
+    )
+
+    assert result.code == "schedule_activated"
+    assert schedule.status == "active"
+    assert schedule.revision == 2
+    assert schedule.name == "Briefing sem confirmação redundante"
+    assert schedule.pending_revision is None
+    assert await session.scalar(select(func.count(PendingAction.id))) == 0
+    assert [grant.status for grant in grants] == ["revoked", "active"]
+
+
+@pytest.mark.asyncio
 async def test_cancelled_schedule_update_keeps_active_revision_unchanged(session, context) -> None:
     settings = schedule_settings()
     conversation, inbound, run = await records(session, context, "Crie meu briefing diário.")
@@ -527,13 +630,8 @@ async def test_cancelled_schedule_update_keeps_active_revision_unchanged(session
     await create_schedule(tool_context, CreateScheduleArguments(spec=daily_spec()))
     schedule = await session.scalar(select(ScheduledAutomation))
     assert schedule is not None
-    await activate_pending_schedule(
-        tool_context,
-        schedule_id=schedule.id,
-        revision=1,
-        confirmation_message_id=inbound.id,
-    )
-    updated_data = daily_spec().model_dump(mode="json")
+    integration = await connected_calendar(session, context)
+    updated_data = r2_schedule_spec(integration.id).model_dump(mode="json")
     updated_data["name"] = "Nome que não deve ser aplicado"
     await update_schedule(
         tool_context,
@@ -574,7 +672,11 @@ async def test_expired_schedule_confirmation_can_be_renewed(session, context) ->
         idempotency_key="renew-schedule-confirmation-key",
         settings=settings,
     )
-    await create_schedule(tool_context, CreateScheduleArguments(spec=daily_spec()))
+    integration = await connected_calendar(session, context)
+    await create_schedule(
+        tool_context,
+        CreateScheduleArguments(spec=r2_schedule_spec(integration.id)),
+    )
     expired = await session.scalar(select(PendingAction))
     assert expired is not None
     expired.status = "expired"
@@ -614,10 +716,14 @@ async def test_late_one_time_confirmation_runs_within_grace(session, context) ->
         idempotency_key="create-calendar-reminder-key",
         settings=settings,
     )
+    integration = await connected_calendar(session, context)
     result = await create_schedule(
         tool_context,
         CreateScheduleArguments(
-            spec=reminder_spec(datetime.now(UTC) + timedelta(minutes=5), include_calendar=True)
+            spec=r2_once_schedule_spec(
+                integration.id,
+                datetime.now(UTC) + timedelta(minutes=5),
+            )
         ),
     )
     assert result.code == "confirmation_required"
@@ -658,10 +764,14 @@ async def test_stale_unconfirmed_schedule_expires(session, context) -> None:
         idempotency_key="create-expiring-reminder-key",
         settings=settings,
     )
+    integration = await connected_calendar(session, context)
     await create_schedule(
         tool_context,
         CreateScheduleArguments(
-            spec=reminder_spec(datetime.now(UTC) + timedelta(minutes=5), include_calendar=True)
+            spec=r2_once_schedule_spec(
+                integration.id,
+                datetime.now(UTC) + timedelta(minutes=5),
+            )
         ),
     )
     schedule = await session.scalar(select(ScheduledAutomation))

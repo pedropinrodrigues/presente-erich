@@ -2,11 +2,11 @@
 
 ## Estado da implementação
 
-Implementado em 23/08/2026: contrato `ScheduleSpec v1`, RRULE/timezone, ativação imediata de avisos
-pontuais R0 no chat de origem, confirmação única para as demais rotinas, autorização persistente por
+Implementado em 23/08/2026: contrato `ScheduleSpec v1`, RRULE/timezone, ativação imediata de rotinas
+R0/R1 pelo pedido explícito, confirmação adicional somente para efeitos externos R2, autorização por
 revisão, CRUD conversacional, dispatcher transacional, runs com lease e idempotência, execução pelo
 Terra, memória/perfil atual, entrega pela outbox e tools Composio já aprovadas de Gmail, Google
-Calendar e WhatsApp Business. A migration ativa é `20260823_0007`.
+Calendar e WhatsApp Business. A migration ativa é `20261001_0013`.
 
 O catálogo Composio extensível descrito na Etapa 5 continua como evolução. A base da Etapa 6 já
 existe no repositório: API e worker possuem imagem Docker, serviços Northflank, heartbeat,
@@ -39,11 +39,11 @@ genérico, shell, proxy HTTP ou todo o catálogo sem classificação de risco.
    persistidos e reivindicados pelo worker do projeto.
 2. O agendamento é apenas o gatilho temporal. Quando chegar a hora, ele cria uma execução normal do
    orquestrador Terra com tools limitadas, auditoria, memória e outbox já existentes.
-3. Um aviso pontual R0 que apenas responde no chat de origem é ativado pelo próprio pedido explícito
-   do usuário. Rotinas recorrentes ou com outras tools exigem uma confirmação única; ela cria uma
-   autorização persistente e limitada que não será solicitada novamente em cada ocorrência.
+3. O pedido explícito do usuário ativa rotinas R0/R1, pontuais ou recorrentes, sem uma confirmação
+   redundante. Rotinas com efeitos externos R2 exigem uma confirmação adicional, que cria uma
+   autorização persistente e limitada para as ocorrências futuras daquela revisão.
 4. A autorização fica presa à versão da rotina, às tools, contas, destinatários e limites aprovados.
-   Uma edição que amplie esse poder exige nova confirmação.
+   Uma edição R0/R1 explícita é aplicada imediatamente; uma edição com efeito R2 exige confirmação.
 5. Leituras podem usar todas as contas conectadas. Escritas recorrentes ficam presas a uma conta
    específica; mudar a conta padrão não muda silenciosamente uma rotina existente.
 6. A primeira versão não permitirá autorização permanente para exclusões, pagamentos, mudanças de
@@ -67,9 +67,9 @@ Terra consulta contas/tools e compila ScheduleSpec v1
        ▼
 Backend valida tempo, política, escopo e autorização
        │
-       ├─ aviso pontual R0 no próprio chat: ativa imediatamente
+       ├─ rotina R0/R1: ativa imediatamente pelo pedido explícito
        │
-       └─ demais rotinas: cria draft + PendingAction
+       └─ rotina com efeito externo R2: cria draft + PendingAction
                          │ usuário confirma uma vez
                          ▼
        ▼
@@ -124,8 +124,8 @@ INDEX(status, available_at, scheduled_for)
 
 ### `automation_grants`
 
-Registra a autorização criada pelo pedido explícito de um aviso pontual R0 ou pela confirmação das
-demais rotinas:
+Registra a autorização criada pelo pedido explícito de uma rotina R0/R1 ou pela confirmação de uma
+rotina com efeito externo R2:
 
 ```text
 id, workspace_id, user_id, scheduled_automation_id, automation_revision
@@ -194,10 +194,10 @@ O modelo poderá sugerir o contrato, mas o serviço de domínio valida:
 
 | Tool local | Risco | Responsabilidade |
 | --- | --- | --- |
-| `create_schedule` | R2 | Ativa avisos pontuais R0 no chat de origem; nas demais rotinas, cria draft e pede uma confirmação única. |
+| `create_schedule` | R2 | Ativa rotinas R0/R1 pelo pedido explícito; cria draft somente quando houver efeito externo R2. |
 | `list_schedules` | R0 | Lista rotinas, estado e próxima execução. |
 | `get_schedule` | R0 | Mostra contrato, autorização e histórico recente. |
-| `update_schedule` | R1/R2 | Atualiza; exige nova confirmação quando ampliar poderes. |
+| `update_schedule` | R1/R2 | Aplica R0/R1 imediatamente; mantém a versão atual enquanto uma edição R2 aguarda confirmação. |
 | `pause_schedule` | R1 | Impede novos disparos sem apagar histórico. |
 | `resume_schedule` | R1/R2 | Reativa; reconfirma apenas se grant/revisão não forem válidos. |
 | `delete_schedule` | R1 | Soft delete explícito e revogação do grant. |
@@ -209,17 +209,14 @@ O modelo poderá sugerir o contrato, mas o serviço de domínio valida:
 
 Luna deve pedir clarificação somente quando faltar algo material, como horário, timezone,
 destinatário ou conta de uma escrita. Expressões suficientemente claras usam o timezone do usuário.
-Para “me avise aqui daqui a um minuto”, o pedido inicial já é a autorização e não há uma segunda
-confirmação; rotinas recorrentes ou com outros efeitos exibem a interpretação antes da confirmação.
+O pedido explícito é a autorização para rotinas R0/R1 e não há uma segunda confirmação, mesmo em
+recorrências. Rotinas com efeitos externos R2 exibem a interpretação antes da confirmação.
 
 ## Autorização e confirmação
 
-Um aviso pontual é ativado sem confirmação adicional somente quando todas estas condições forem
-verdadeiras: trigger `once`, única tool `deliver_to_user`, entrega na conversa de origem, risco
-máximo R0, nenhuma conta externa e nenhuma escrita externa. O pedido inicial fica auditado como a
-autorização explícita dessa ocorrência.
-
-As demais rotinas recebem uma confirmação única de ativação. A mensagem de confirmação deve mostrar:
+Rotinas cujas tools sejam somente R0/R1 são ativadas sem confirmação adicional. O pedido inicial ou
+de edição fica auditado como autorização explícita daquela revisão. Rotinas que incluam qualquer
+efeito externo R2 recebem uma confirmação adicional. A mensagem de confirmação deve mostrar:
 
 - nome e objetivo;
 - próxima execução e recorrência no horário local;
@@ -362,14 +359,14 @@ tempestade de catch-up.
 ### Etapa 2 — criação por conversa e autorização
 
 - novas tools no orquestrador;
-- ativação imediata do aviso pontual R0 pelo pedido inicial;
-- draft e confirmação única pelo `PendingAction` para as demais rotinas;
+- ativação imediata de rotinas R0/R1 pelo pedido explícito;
+- draft e confirmação pelo `PendingAction` somente para rotinas R2;
 - `AutomationGrant` versionado;
 - resumo legível da próxima execução antes de ativar;
 - evals de data, recorrência, pausa, atualização e cancelamento.
 
-**Gate:** somente o aviso pontual R0 estritamente limitado fica ativo pelo pedido inicial; nenhuma
-outra rotina ativa sem confirmação e nenhuma edição amplia o grant silenciosamente.
+**Gate:** rotinas R0/R1 ficam ativas pelo pedido explícito; nenhuma rotina com efeito externo R2
+ativa sem confirmação e nenhuma edição amplia silenciosamente um grant R2.
 
 ### Etapa 3 — briefing diário completo
 
@@ -425,8 +422,8 @@ outra rotina ativa sem confirmação e nenhuma edição amplia o grant silencios
 
 ## Critérios de aceite
 
-1. O usuário cria um aviso pontual pelo Telegram sem confirmação redundante e confirma uma única
-   vez as rotinas recorrentes ou com outros efeitos.
+1. O usuário cria ou altera rotinas R0/R1 sem confirmação redundante e confirma uma única vez as
+   rotinas que tenham efeitos externos R2.
 2. A próxima ocorrência exibida corresponde ao timezone e à recorrência persistida.
 3. Cada ocorrência lógica gera no máximo um `ScheduledRun`, uma tarefa e uma entrega final.
 4. Pausar impede novos runs; retomar não recupera ocorrências antigas ilimitadamente.

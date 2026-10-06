@@ -33,7 +33,7 @@ from .tools import ToolRegistry, delegation_tool_specs, fast_tool_specs
 
 logger = logging.getLogger(__name__)
 
-CONVERSATION_PROMPT_VERSION = "conversation-router-2026-09-03-v12"
+CONVERSATION_PROMPT_VERSION = "conversation-router-2026-10-06-v13"
 
 ROUTING_INSTRUCTIONS = """
 Você é Luna, a interface conversacional rápida. Sua primeira responsabilidade é compreender a
@@ -94,9 +94,8 @@ Regras obrigatórias:
   web_research para uma consulta que pede somente informações já salvas na memória pessoal.
 - Criar ou administrar lembretes, horários, recorrências, rotinas e automações programadas usa
   delegate com automation. Se horário, recorrência, destinatário ou conta essenciais estiverem
-  realmente ausentes, use clarify. Um lembrete pontual que apenas responde no próprio chat é
-  ativado pelo pedido inicial e não exige segunda confirmação; rotinas recorrentes ou com outros
-  efeitos são compiladas pelo Terra e pedem uma confirmação única.
+  realmente ausentes, use clarify. O pedido explícito ativa rotinas R0/R1 sem segunda confirmação.
+  Somente rotinas com efeitos externos R2 pedem uma confirmação adicional.
 - Um primeiro pedido de exclusão usa delegate. O orquestrador localizará o alvo e proporá a ação.
 - Se houver ação pendente e o usuário disser claramente "sim", "confirmo", "pode apagar",
   "pode excluir" ou equivalente inequívoco, use delegate com a intenção correspondente.
