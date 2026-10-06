@@ -208,3 +208,5 @@ programadas.
   integrar CRM e tarefas pelo MCP oficial do Bitrix24.
 - `docs/17-macwhisper-new-user-guide.md`: onboarding de uma nova conta pelo Telegram e configuração
   segura do Custom Webhook do MacWhisper.
+- `docs/18-agent-as-system-observability-harness.md`: harness para tornar o chat a interface de
+  observabilidade, explicação e recuperação de todos os recursos pertencentes ao usuário.
